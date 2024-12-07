@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Callback</title>
+</head>
+<body>
+    <h1>Authorization Callback</h1>
+    <p>Processing TikTok's OAuth response...</p>
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get('code');
+        const state = urlParams.get('state');
+
+        if (code) {
+            document.body.innerHTML += `<p>Authorization code: ${code}</p>`;
+        } else {
+            document.body.innerHTML += `<p>No authorization code received.</p>`;
+        }
+    </script>
+</body>
+</html>
