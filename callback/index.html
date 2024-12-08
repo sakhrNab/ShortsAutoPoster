@@ -4,19 +4,75 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Callback</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            padding: 20px;
+            background-color: #f9f9f9;
+        }
+        h1 {
+            color: #333;
+        }
+        p {
+            font-size: 16px;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+    </style>
 </head>
 <body>
     <h1>Authorization Callback</h1>
     <p>Processing TikTok's OAuth response...</p>
+
     <script>
+        // Parse query parameters from URL
         const urlParams = new URLSearchParams(window.location.search);
         const code = urlParams.get('code');
         const state = urlParams.get('state');
+        const error = urlParams.get('error');
+        const errorDescription = urlParams.get('error_description');
 
-        if (code) {
-            document.body.innerHTML += `<p>Authorization code: ${code}</p>`;
+        // Display the result
+        if (error) {
+            document.body.innerHTML += `
+                <p class="error">Error: ${error}</p>
+                <p>${errorDescription ? `Description: ${errorDescription}` : ''}</p>
+            `;
+        } else if (code) {
+            document.body.innerHTML += `
+                <p class="success">Authorization successful!</p>
+                <p>Authorization code: <code>${code}</code></p>
+                <p>State: <code>${state}</code></p>
+            `;
+
+            // Optionally, send the code and state to the backend for further processing
+            fetch('/callback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code, state })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.body.innerHTML += `
+                    <p class="success">Server Response: ${JSON.stringify(data)}</p>
+                `;
+            })
+            .catch(err => {
+                document.body.innerHTML += `
+                    <p class="error">Failed to process the code on the server: ${err.message}</p>
+                `;
+            });
         } else {
-            document.body.innerHTML += `<p>No authorization code received.</p>`;
+            document.body.innerHTML += `
+                <p class="error">No authorization code received. Please try again.</p>
+            `;
         }
     </script>
 </body>
