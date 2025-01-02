@@ -25,7 +25,7 @@ def setup_logging(log_file):
     ch = logging.StreamHandler()
     ch.setLevel(logging.INFO)
 
-    # Correct Formatter with 'levelname'
+    # Formatter
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     fh.setFormatter(formatter)
     ch.setFormatter(formatter)
@@ -103,14 +103,23 @@ def process_image(image_path, config, parameters, logger, preview=False, preview
         black_bg_1 = Image.new("RGBA", (width, black_bg_height_1), color=(0, 0, 0, int(255 * (parameters['black_bg_transparency'] / 100))))
         img.paste(black_bg_1, (0, height - black_bg_height_1), black_bg_1)
 
-        # Position first icon with offsets
+        # Calculate vertical positions with full range
+        def calculate_vertical_position(offset, height, element_height):
+            # Convert slider value (-100 to 100) to actual position
+            # -100 means top of image, 0 means middle, 100 means bottom
+            relative_pos = offset / 100  # Convert to -1 to 1 range
+            available_space = height - element_height
+            middle_pos = available_space / 2
+            return int(middle_pos + (relative_pos * middle_pos))
+
+        # Position icon with offsets
         icon_x = (width - icon_width) // 2 + parameters['icon_offset_x']
-        icon_y = height - black_bg_height_1 + (black_bg_height_1 - icon_height) // 2 + parameters['icon_offset_y']
+        icon_y = calculate_vertical_position(parameters['icon_offset_y'], height, icon_height)
         img.paste(icon, (icon_x, icon_y), icon)
 
         # Add gradient line based on user selection
         line_length = int(width * 0.4)
-        line_y = icon_y + icon_height + 10 + parameters['line_offset_y']  # Positioning below the icon
+        line_y = calculate_vertical_position(parameters['line_offset_y'], height, 5)  # Positioning below the icon
         line_thickness = 5
         line_type = parameters['line_type']
         line_transparency = int(255 * (parameters['line_transparency'] / 100))
@@ -164,7 +173,7 @@ def process_image(image_path, config, parameters, logger, preview=False, preview
             text_width = text_bbox[2] - text_bbox[0]
             text_height = text_bbox[3] - text_bbox[1]
             text_x = (width - text_width) // 2 + parameters['description_offset_x']
-            text_y = line_y + 10 + parameters['description_offset_y']  # Positioning below the line
+            text_y = calculate_vertical_position(parameters['description_offset_y'], height, text_height)  # Positioning below the line
             draw.text((text_x, text_y), description, font=font_obj, fill=tuple(parameters['text_color']))
 
         # Add second semi-transparent black background if enabled
@@ -328,97 +337,117 @@ class ImageEditorGUI:
         self.param_frame = tk.LabelFrame(self.controls_frame.scrollable_frame, text="Parameters", padx=10, pady=10)
         self.param_frame.pack(padx=10, pady=10, fill="x")
 
-        # Icon Width Percentage
+        # Icon Width Percentage with Slider
         self.icon_width_label = tk.Label(self.param_frame, text="Icon Width (%):")
         self.icon_width_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
-        self.icon_width_entry = tk.Entry(self.param_frame)
-        self.icon_width_entry.grid(row=0, column=1, padx=5, pady=5)
+        self.icon_width_slider = tk.Scale(self.param_frame, from_=1, to=100, orient="horizontal", 
+                                        command=lambda v: self.sync_slider_entry(v, self.icon_width_entry))
+        self.icon_width_slider.grid(row=0, column=1, padx=5, pady=0, sticky="ew")
+        self.icon_width_entry = tk.Entry(self.param_frame, width=10)
+        self.icon_width_entry.grid(row=1, column=1, padx=5, pady=0, sticky="w")
+        self.icon_width_slider.set(40)  # Default value
         self.icon_width_entry.insert(0, "40")  # Default value
 
-        # Icon Height Percentage
+        # Icon Height Percentage with Slider
         self.icon_height_label = tk.Label(self.param_frame, text="Icon Height (%):")
-        self.icon_height_label.grid(row=1, column=0, padx=5, pady=5, sticky="e")
-        self.icon_height_entry = tk.Entry(self.param_frame)
-        self.icon_height_entry.grid(row=1, column=1, padx=5, pady=5)
+        self.icon_height_label.grid(row=2, column=0, padx=5, pady=5, sticky="e")
+        self.icon_height_slider = tk.Scale(self.param_frame, from_=1, to=100, orient="horizontal",
+                                         command=lambda v: self.sync_slider_entry(v, self.icon_height_entry))
+        self.icon_height_slider.grid(row=2, column=1, padx=5, pady=0, sticky="ew")
+        self.icon_height_entry = tk.Entry(self.param_frame, width=10)
+        self.icon_height_entry.grid(row=3, column=1, padx=5, pady=0, sticky="w")
+        self.icon_height_slider.set(15)  # Default value
         self.icon_height_entry.insert(0, "15")  # Default value
 
-        # Black Background Height Percentage
+        # Black Background Height Percentage with Slider
         self.bg_height_label = tk.Label(self.param_frame, text="Black Background Height (%):")
-        self.bg_height_label.grid(row=2, column=0, padx=5, pady=5, sticky="e")
-        self.bg_height_entry = tk.Entry(self.param_frame)
-        self.bg_height_entry.grid(row=2, column=1, padx=5, pady=5)
+        self.bg_height_label.grid(row=4, column=0, padx=5, pady=5, sticky="e")
+        self.bg_height_slider = tk.Scale(self.param_frame, from_=1, to=100, orient="horizontal",
+                                       command=lambda v: self.sync_slider_entry(v, self.bg_height_entry))
+        self.bg_height_slider.grid(row=4, column=1, padx=5, pady=0, sticky="ew")
+        self.bg_height_entry = tk.Entry(self.param_frame, width=10)
+        self.bg_height_entry.grid(row=5, column=1, padx=5, pady=0, sticky="w")
+        self.bg_height_slider.set(15)  # Default value
         self.bg_height_entry.insert(0, "15")  # Default value
 
-        # Black Background Transparency
+        # Black Background Transparency with Slider
         self.bg_transparency_label = tk.Label(self.param_frame, text="Black Background Transparency (%):")
-        self.bg_transparency_label.grid(row=3, column=0, padx=5, pady=5, sticky="e")
-        self.bg_transparency_entry = tk.Entry(self.param_frame)
-        self.bg_transparency_entry.grid(row=3, column=1, padx=5, pady=5)
-        self.bg_transparency_entry.insert(0, "50")  # Default value (50%)
+        self.bg_transparency_label.grid(row=6, column=0, padx=5, pady=5, sticky="e")
+        self.bg_transparency_slider = tk.Scale(self.param_frame, from_=0, to=100, orient="horizontal",
+                                             command=lambda v: self.sync_slider_entry(v, self.bg_transparency_entry))
+        self.bg_transparency_slider.grid(row=6, column=1, padx=5, pady=0, sticky="ew")
+        self.bg_transparency_entry = tk.Entry(self.param_frame, width=10)
+        self.bg_transparency_entry.grid(row=7, column=1, padx=5, pady=0, sticky="w")
+        self.bg_transparency_slider.set(50)  # Default value
+        self.bg_transparency_entry.insert(0, "50")  # Default value
 
-        # Line Transparency
+        # Line Transparency with Slider
         self.line_transparency_label = tk.Label(self.param_frame, text="Line Transparency (%):")
-        self.line_transparency_label.grid(row=4, column=0, padx=5, pady=5, sticky="e")
-        self.line_transparency_entry = tk.Entry(self.param_frame)
-        self.line_transparency_entry.grid(row=4, column=1, padx=5, pady=5)
-        self.line_transparency_entry.insert(0, "100")  # Default value (100%)
+        self.line_transparency_label.grid(row=8, column=0, padx=5, pady=5, sticky="e")
+        self.line_transparency_slider = tk.Scale(self.param_frame, from_=0, to=100, orient="horizontal",
+                                               command=lambda v: self.sync_slider_entry(v, self.line_transparency_entry))
+        self.line_transparency_slider.grid(row=8, column=1, padx=5, pady=0, sticky="ew")
+        self.line_transparency_entry = tk.Entry(self.param_frame, width=10)
+        self.line_transparency_entry.grid(row=9, column=1, padx=5, pady=0, sticky="w")
+        self.line_transparency_slider.set(100)  # Default value
+        self.line_transparency_entry.insert(0, "100")  # Default value
 
         # Line Type Selection
         self.line_type_label = tk.Label(self.param_frame, text="Line Type:")
-        self.line_type_label.grid(row=5, column=0, padx=5, pady=5, sticky="e")
+        self.line_type_label.grid(row=10, column=0, padx=5, pady=5, sticky="e")
         self.line_type_var = tk.StringVar(value="Solid")
         self.line_type_combo = ttk.Combobox(self.param_frame, textvariable=self.line_type_var, state="readonly")
         self.line_type_combo['values'] = ("Solid", "Dashed", "Gradient")
-        self.line_type_combo.grid(row=5, column=1, padx=5, pady=5)
+        self.line_type_combo.grid(row=10, column=1, padx=5, pady=5)
 
         # Line Color
         self.line_color_label = tk.Label(self.param_frame, text="Line Color:")
-        self.line_color_label.grid(row=6, column=0, padx=5, pady=5, sticky="e")
+        self.line_color_label.grid(row=11, column=0, padx=5, pady=5, sticky="e")
         self.line_color_button = tk.Button(self.param_frame, text="Choose Color", command=self.choose_line_color)
-        self.line_color_button.grid(row=6, column=1, padx=5, pady=5, sticky="w")
+        self.line_color_button.grid(row=11, column=1, padx=5, pady=5, sticky="w")
 
         # Line Gradient Start Color
         self.line_gradient_start_label = tk.Label(self.param_frame, text="Line Gradient Start Color:")
-        self.line_gradient_start_label.grid(row=7, column=0, padx=5, pady=5, sticky="e")
+        self.line_gradient_start_label.grid(row=12, column=0, padx=5, pady=5, sticky="e")
         self.line_gradient_start_button = tk.Button(self.param_frame, text="Choose Color", command=self.choose_line_gradient_start)
-        self.line_gradient_start_button.grid(row=7, column=1, padx=5, pady=5, sticky="w")
+        self.line_gradient_start_button.grid(row=12, column=1, padx=5, pady=5, sticky="w")
 
         # Line Gradient End Color
         self.line_gradient_end_label = tk.Label(self.param_frame, text="Line Gradient End Color:")
-        self.line_gradient_end_label.grid(row=8, column=0, padx=5, pady=5, sticky="e")
+        self.line_gradient_end_label.grid(row=13, column=0, padx=5, pady=5, sticky="e")
         self.line_gradient_end_button = tk.Button(self.param_frame, text="Choose Color", command=self.choose_line_gradient_end)
-        self.line_gradient_end_button.grid(row=8, column=1, padx=5, pady=5, sticky="w")
+        self.line_gradient_end_button.grid(row=13, column=1, padx=5, pady=5, sticky="w")
 
         # Text Color
         self.text_color_label = tk.Label(self.param_frame, text="Description Text Color:")
-        self.text_color_label.grid(row=9, column=0, padx=5, pady=5, sticky="e")
+        self.text_color_label.grid(row=14, column=0, padx=5, pady=5, sticky="e")
         self.text_color_button = tk.Button(self.param_frame, text="Choose Color", command=self.choose_text_color)
-        self.text_color_button.grid(row=9, column=1, padx=5, pady=5, sticky="w")
+        self.text_color_button.grid(row=14, column=1, padx=5, pady=5, sticky="w")
 
         # Font Selection
         self.font_label = tk.Label(self.param_frame, text="Font Type:")
-        self.font_label.grid(row=10, column=0, padx=5, pady=5, sticky="e")
+        self.font_label.grid(row=15, column=0, padx=5, pady=5, sticky="e")
         self.font_button = tk.Button(self.param_frame, text="Choose Font", command=self.choose_font)
-        self.font_button.grid(row=10, column=1, padx=5, pady=5, sticky="w")
+        self.font_button.grid(row=15, column=1, padx=5, pady=5, sticky="w")
         self.selected_font = self.config.get("FONT_PATH", "C:/Windows/Fonts/arial.ttf")
         self.logger.info(f"Initialized with font: {self.selected_font}")  # Debug log
 
         # Font Size Selection
         self.font_size_label = tk.Label(self.param_frame, text="Description Font Size:")
-        self.font_size_label.grid(row=11, column=0, padx=5, pady=5, sticky="e")
+        self.font_size_label.grid(row=16, column=0, padx=5, pady=5, sticky="e")
         self.font_size_spinbox = tk.Spinbox(self.param_frame, from_=10, to=100, width=5, command=self.update_preview)
-        self.font_size_spinbox.grid(row=11, column=1, padx=5, pady=5, sticky="w")
+        self.font_size_spinbox.grid(row=16, column=1, padx=5, pady=5, sticky="w")
         self.font_size_spinbox.delete(0, tk.END)
         self.font_size_spinbox.insert(0, "24")  # Default font size
 
         # Enable Second Black Background
         self.second_bg_var = tk.BooleanVar(value=False)
         self.enable_second_bg_rb = tk.Checkbutton(self.param_frame, text="Enable Second Black Background", variable=self.second_bg_var, command=self.toggle_second_bg)
-        self.enable_second_bg_rb.grid(row=12, column=0, columnspan=2, padx=5, pady=5, sticky="w")
+        self.enable_second_bg_rb.grid(row=17, column=0, columnspan=2, padx=5, pady=5, sticky="w")
 
         # Second Black Background Positioning
         self.second_bg_position_frame = tk.LabelFrame(self.param_frame, text="Second Background Position", padx=10, pady=10)
-        self.second_bg_position_frame.grid(row=13, column=0, columnspan=2, padx=5, pady=5, sticky="we")
+        self.second_bg_position_frame.grid(row=18, column=0, columnspan=2, padx=5, pady=5, sticky="we")
         self.second_bg_position_frame.grid_remove()  # Hide initially
 
         tk.Label(self.second_bg_position_frame, text="X Position:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
@@ -444,7 +473,7 @@ class ImageEditorGUI:
         # Open Image After Processing (Checked by Default)
         self.open_image_var = tk.BooleanVar(value=True)
         self.open_image_rb = tk.Checkbutton(self.param_frame, text="Open Image After Processing", variable=self.open_image_var)
-        self.open_image_rb.grid(row=14, column=0, columnspan=2, padx=5, pady=5)
+        self.open_image_rb.grid(row=19, column=0, columnspan=2, padx=5, pady=5)
 
         # Position Adjustments with horizontal layout
         self.position_frame = tk.LabelFrame(self.controls_frame.scrollable_frame, text="Position Adjustments", padx=10, pady=10)
@@ -908,21 +937,41 @@ class ImageEditorGUI:
                 messagebox.showwarning("Warning", "No image files found in the selected folder.")
                 return
 
-            # Multiprocessing setup
-            cpu_cores = cpu_count()
-            pool = Pool(cpu_cores)
+            # Process images in chunks to avoid memory issues
+            chunk_size = 10  # Process 10 images at a time
+            total_images = len(image_files)
+            processed = 0
 
-            # Partial function with fixed arguments
-            func = partial(process_image, config=self.config, 
+            with Pool(processes=cpu_count()) as pool:
+                # Partial function with fixed arguments
+                func = partial(process_image, config=self.config, 
                            parameters=parameters, logger=self.logger, preview=False)
 
-            # Process images in parallel
-            pool.map(func, image_files)
-            pool.close()
-            pool.join()
+                # Process images in chunks
+                for i in range(0, total_images, chunk_size):
+                    chunk = image_files[i:i + chunk_size]
+                    pool.map(func, chunk)
+                    processed += len(chunk)
+                    self.logger.info(f"Processed {processed}/{total_images} images...")
 
             self.logger.info("Batch image processing completed.")
-            messagebox.showinfo("Success", "Batch image processing completed.")
+            messagebox.showinfo("Success", f"Batch processing completed. {total_images} images processed.")
+
+    def sync_slider_entry(self, value, entry_widget):
+        """Synchronize slider value with entry widget and trigger preview update"""
+        entry_widget.delete(0, tk.END)
+        entry_widget.insert(0, str(int(float(value))))
+        self.update_preview()
+
+    # Add new method for entry to slider sync
+    def sync_entry_slider(self, event, entry_widget, slider_widget):
+        """Synchronize entry value with slider widget and trigger preview update"""
+        try:
+            value = int(float(entry_widget.get()))
+            slider_widget.set(value)
+            self.update_preview()
+        except ValueError:
+            pass
 
 # --------------------------- Main Functionality ---------------------------
 
