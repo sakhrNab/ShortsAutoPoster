@@ -408,9 +408,17 @@ class ImageEditorGUI:
     def add_description(self):
         desc = self.description_text.get("1.0", tk.END).strip()
         if desc:
-            self.descriptions.append(desc)
+            # Store description with position data
+            desc_data = {
+                'text': desc,
+                'color': self.text_color,
+                'offset_x': 0,
+                'offset_y': 0
+            }
+            self.descriptions.append(desc_data)
             self.descriptions_listbox.insert(tk.END, desc)
             self.description_text.delete("1.0", tk.END)
+            self.update_description_position_controls()
             self.logger.info("Added new description.")
             self.update_preview()
 
@@ -432,14 +440,8 @@ class ImageEditorGUI:
         color_code = colorchooser.askcolor(title="Choose Description Color")
         if color_code and color_code[0]:  # color_code[0] is RGB tuple, color_code[1] is hex
             index = selected[0]
-            desc = self.descriptions[index]
             rgb_color = tuple(map(int, color_code[0]))  # Convert to RGB tuple
-            
-            # Store the description with its color in a dictionary format
-            self.descriptions[index] = {
-                'text': desc if isinstance(desc, str) else desc.get('text', ''),
-                'color': rgb_color
-            }
+            self.descriptions[index]['color'] = rgb_color
             
             # Update the listbox display
             self.descriptions_listbox.delete(index)
@@ -546,16 +548,28 @@ class ImageEditorGUI:
         self.font_size_spinbox.bind("<ButtonRelease-1>", lambda event: self.update_preview())
         self.custom_width_entry.bind("<KeyRelease>", lambda event: self.update_preview())
         self.custom_height_entry.bind("<KeyRelease>", lambda event: self.update_preview())
+        self.desc_offset_x_slider.config(command=self.sync_description_position)
+        self.desc_offset_y_slider.config(command=self.sync_description_position)
+        self.descriptions_listbox.bind('<<ListboxSelect>>', self.update_description_text)
 
     def update_description_text(self, event):
         selected = self.descriptions_listbox.curselection()
         if selected:
             index = selected[0]
             desc = self.descriptions[index]
-            # Remove color tags for editing
-            desc_clean = re.sub(r'</?\w+?>', '', desc)
             self.description_text.delete("1.0", tk.END)
-            self.description_text.insert("1.0", desc_clean)
+            self.description_text.insert("1.0", desc['text'])
+            # Update position sliders for selected description
+            self.desc_offset_x_slider.set(desc['offset_x'])
+            self.desc_offset_y_slider.set(desc['offset_y'])
+
+    def sync_description_position(self, *args):
+        selected = self.descriptions_listbox.curselection()
+        if selected:
+            index = selected[0]
+            self.descriptions[index]['offset_x'] = self.desc_offset_x_slider.get()
+            self.descriptions[index]['offset_y'] = self.desc_offset_y_slider.get()
+            self.update_preview()
 
     def initialize_preview(self):
         self.line_color = self.config.get("LINE_COLOR", (255, 255, 255))

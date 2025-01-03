@@ -133,22 +133,27 @@ def process_image(image_path, config, parameters, logger, preview=False, max_pre
 
         descriptions = parameters.get('descriptions', [])
         if descriptions:
-            text_y = calculate_vertical_position(parameters['description_offset_y'], height, font_obj.getbbox("Text")[3] - font_obj.getbbox("Text")[1])
             for desc in descriptions:
-                # Handle both string and dictionary format descriptions
                 if isinstance(desc, dict):
                     text = desc.get('text', '')
                     color = desc.get('color', parameters['text_color'])
+                    offset_x = desc.get('offset_x', 0)
+                    offset_y = desc.get('offset_y', 0)
                 else:
                     text = desc
                     color = parameters['text_color']
+                    offset_x = parameters['description_offset_x']
+                    offset_y = parameters['description_offset_y']
                 
                 bbox = font_obj.getbbox(text)
                 text_width = bbox[2] - bbox[0]
-                text_x = (width - text_width) // 2 + parameters['description_offset_x']
+                text_height = bbox[3] - bbox[1]
+                
+                # Calculate position using individual offsets
+                text_x = (width - text_width) // 2 + offset_x
+                text_y = calculate_vertical_position(offset_y, height, text_height)
                 
                 draw.text((text_x, text_y), text, font=font_obj, fill=tuple(color))
-                text_y += bbox[3] - bbox[1] + 5
 
         if parameters['enable_second_bg']:
             black_bg_height_2 = int(height * (parameters['second_black_bg_height_percentage'] / 100))
