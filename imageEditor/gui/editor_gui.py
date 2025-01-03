@@ -96,14 +96,8 @@ class ImageEditorGUI:
         self.format_toolbar = tk.Frame(self.controls_frame.scrollable_frame)
         self.format_toolbar.grid(row=3, column=0, padx=10, pady=5, sticky="ew")
 
-        self.color_button = tk.Button(self.format_toolbar, text="Change Color", command=self.change_text_color)
+        self.color_button = tk.Button(self.format_toolbar, text="Change Description Color", command=self.change_description_color)
         self.color_button.pack(side="left", padx=5)
-
-        self.bold_button = tk.Button(self.format_toolbar, text="Bold", command=self.toggle_bold)
-        self.bold_button.pack(side="left", padx=5)
-
-        self.italic_button = tk.Button(self.format_toolbar, text="Italic", command=self.toggle_italic)
-        self.italic_button.pack(side="left", padx=5)
 
         # Parameters Group Frame
         self.param_group_frame = tk.Frame(self.controls_frame.scrollable_frame)
@@ -147,7 +141,7 @@ class ImageEditorGUI:
         self.text_settings_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
 
         # Text Color with Button
-        self.text_color_label = tk.Label(self.text_settings_frame, text="Text Color:")
+        self.text_color_label = tk.Label(self.text_settings_frame, text="Default Text Color:")
         self.text_color_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
         self.text_color_button = tk.Button(self.text_settings_frame, text="Choose Color", command=self.choose_text_color)
         self.text_color_button.grid(row=0, column=1, padx=5, pady=5, sticky="w")
@@ -429,15 +423,31 @@ class ImageEditorGUI:
             self.logger.info(f"Deleted description: {desc}")
             self.update_preview()
 
-    def change_text_color(self):
-        color_code = colorchooser.askcolor(title="Choose Text Color")
-        if color_code and color_code[1]:
-            selected_text = self.description_text.tag_ranges(tk.SEL)
-            if selected_text:
-                tag_name = f"color_{color_code[1][1:]}"
-                self.description_text.tag_add(tag_name, "sel.first", "sel.last")
-                self.description_text.tag_config(tag_name, foreground=color_code[1])
-                self.logger.info(f"Changed color of selected text to {color_code[1]}")
+    def change_description_color(self):
+        selected = self.descriptions_listbox.curselection()
+        if not selected:
+            messagebox.showwarning("Warning", "Please select a description to change its color.")
+            return
+        
+        color_code = colorchooser.askcolor(title="Choose Description Color")
+        if color_code and color_code[0]:  # color_code[0] is RGB tuple, color_code[1] is hex
+            index = selected[0]
+            desc = self.descriptions[index]
+            rgb_color = tuple(map(int, color_code[0]))  # Convert to RGB tuple
+            
+            # Store the description with its color in a dictionary format
+            self.descriptions[index] = {
+                'text': desc if isinstance(desc, str) else desc.get('text', ''),
+                'color': rgb_color
+            }
+            
+            # Update the listbox display
+            self.descriptions_listbox.delete(index)
+            display_text = f"{self.descriptions[index]['text']} (RGB{rgb_color})"
+            self.descriptions_listbox.insert(index, display_text)
+            
+            self.logger.info(f"Changed color of description to RGB{rgb_color}")
+            self.update_preview()
 
     def toggle_bold(self):
         selected_text = self.description_text.tag_ranges(tk.SEL)
@@ -491,10 +501,10 @@ class ImageEditorGUI:
             self.update_preview()
 
     def choose_text_color(self):
-        color_code = colorchooser.askcolor(title="Choose Description Text Color")
+        color_code = colorchooser.askcolor(title="Choose Default Description Text Color")
         if color_code and color_code[0]:
             self.text_color = color_code[0]
-            self.logger.info(f"Selected Description Text Color: {self.text_color}")
+            self.logger.info(f"Selected Default Description Text Color: {self.text_color}")
             self.update_preview()
 
     def choose_font(self):
@@ -542,8 +552,10 @@ class ImageEditorGUI:
         if selected:
             index = selected[0]
             desc = self.descriptions[index]
+            # Remove color tags for editing
+            desc_clean = re.sub(r'</?\w+?>', '', desc)
             self.description_text.delete("1.0", tk.END)
-            self.description_text.insert("1.0", desc)
+            self.description_text.insert("1.0", desc_clean)
 
     def initialize_preview(self):
         self.line_color = self.config.get("LINE_COLOR", (255, 255, 255))

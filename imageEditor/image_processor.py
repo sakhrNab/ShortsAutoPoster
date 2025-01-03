@@ -8,6 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 from functools import partial
 from multiprocessing import Pool, cpu_count
 import traceback
+import re
 from utils import create_gradient
 
 def open_image(path, logger):
@@ -132,16 +133,22 @@ def process_image(image_path, config, parameters, logger, preview=False, max_pre
 
         descriptions = parameters.get('descriptions', [])
         if descriptions:
-            bbox = font_obj.getbbox("Text")
-            text_height = bbox[3] - bbox[1]
-            text_y = calculate_vertical_position(parameters['description_offset_y'], height, text_height)
+            text_y = calculate_vertical_position(parameters['description_offset_y'], height, font_obj.getbbox("Text")[3] - font_obj.getbbox("Text")[1])
             for desc in descriptions:
-                bbox_desc = font_obj.getbbox(desc)
-                text_width = bbox_desc[2] - bbox_desc[0]
-                text_height_desc = bbox_desc[3] - bbox_desc[1]
+                # Handle both string and dictionary format descriptions
+                if isinstance(desc, dict):
+                    text = desc.get('text', '')
+                    color = desc.get('color', parameters['text_color'])
+                else:
+                    text = desc
+                    color = parameters['text_color']
+                
+                bbox = font_obj.getbbox(text)
+                text_width = bbox[2] - bbox[0]
                 text_x = (width - text_width) // 2 + parameters['description_offset_x']
-                draw.text((text_x, text_y), desc, font=font_obj, fill=tuple(parameters['text_color']))
-                text_y += text_height_desc + 5
+                
+                draw.text((text_x, text_y), text, font=font_obj, fill=tuple(color))
+                text_y += bbox[3] - bbox[1] + 5
 
         if parameters['enable_second_bg']:
             black_bg_height_2 = int(height * (parameters['second_black_bg_height_percentage'] / 100))
@@ -160,7 +167,7 @@ def process_image(image_path, config, parameters, logger, preview=False, max_pre
 
         if parameters['open_image']:
             open_image(output_path, logger)
-            
+        
         return output_path
     except Exception as e:
         logger.error(f"Error processing image {image_path}: {str(e)}")
@@ -190,3 +197,33 @@ def process_images_in_batch(image_paths, config, parameters, logger, chunk_size=
         logger.error(f"Fatal error in batch processing: {str(e)}")
         logger.debug(traceback.format_exc())
         return 0
+
+def parse_description(description):
+    pattern = re.compile(r'<(\w+?)>(.*?)<\/\1>|<(\w+?)>(.*?)>')
+    segments = []
+    last_end = 0
+    for match in pattern.finditer(description):
+        start, end = match.span()
+        if start > last_end:
+            segments.append({'text': description[last_end:start]})
+        if match.group(1) and match.group(2):
+            color = color_name_to_rgb(match.group(1))
+            segments.append({'text': match.group(2), 'color': color})
+        elif match.group(3) and match.group(4):
+            color = color_name_to_rgb(match.group(3))
+            segments.append({'text': match.group(4), 'color': color})
+        last_end = end
+    if last_end < len(description):
+        segments.append({'text': description[last_end:]})
+    return segments
+
+def color_name_to_rgb(color_name):
+    colors = {
+        'White': (255, 255, 255),
+        'Yellow': (255, 255, 0),
+        'Red': (255, 0, 0),
+        'Green': (0, 255, 0),
+        'Blue': (0, 0, 255),
+        # Add more colors as needed
+    }
+    return colors.get(color_name, (255, 255, 255))
