@@ -66,11 +66,35 @@ def process_image(image_path, config, parameters, logger, preview=False, max_pre
         # Load the image
         img = Image.open(image_path)
         original_size = img.size
+
+        # Aspect Ratio Transformation
+        aspect_ratio = parameters.get('aspect_ratio', (1, 1))  # Default to 1:1
+        desired_ratio = aspect_ratio[0] / aspect_ratio[1]
+        current_ratio = img.width / img.height
+
+        if current_ratio > desired_ratio:
+            # Image is wider than desired ratio
+            new_width = int(desired_ratio * img.height)
+            left = (img.width - new_width) / 2
+            right = left + new_width
+            img = img.crop((left, 0, right, img.height))
+            logger.debug(f"Cropped image width from {img.width + (img.width - new_width)} to {new_width}")
+        elif current_ratio < desired_ratio:
+            # Image is taller than desired ratio
+            new_height = int(img.width / desired_ratio)
+            top = (img.height - new_height) / 2
+            bottom = top + new_height
+            img = img.crop((0, top, img.width, bottom))
+            logger.debug(f"Cropped image height from {img.height + (img.height - new_height)} to {new_height}")
+        else:
+            logger.debug("Image aspect ratio matches the desired aspect ratio. No cropping needed.")
+
         if preview:
             # Calculate scaling factor to maintain aspect ratio
             ratio = min(max_preview_size[0] / img.width, max_preview_size[1] / img.height)
             new_size = (int(img.width * ratio), int(img.height * ratio))
             img = img.resize(new_size, Image.Resampling.LANCZOS)
+        
         if img.mode != 'RGBA':
             img = img.convert('RGBA')
         draw = ImageDraw.Draw(img)
@@ -291,7 +315,7 @@ class ImageEditorGUI:
         self.config = config
         self.logger = logger
         master.title("Automated Image Editor")
-        master.geometry("1000x700")  # Adjusted size
+        master.geometry("1200x800")  # Increased width to accommodate new Aspect Ratio frame
         master.resizable(True, True)  # Allow window to be resizable
 
         # Apply a modern theme
@@ -314,7 +338,7 @@ class ImageEditorGUI:
         # Initialize a separate preview window
         self.preview_window = tk.Toplevel(master)
         self.preview_window.title("Live Preview")
-        self.preview_window.geometry("400x400")  # Initial size
+        self.preview_window.geometry("500x500")  # Increased size for better visibility
         self.preview_window.resizable(True, True)
         self.preview_label = tk.Label(self.preview_window)
         self.preview_label.pack(fill="both", expand=True)
@@ -327,7 +351,7 @@ class ImageEditorGUI:
         self.mode = tk.StringVar(value="single")
 
         self.mode_frame = tk.LabelFrame(self.controls_frame.scrollable_frame, text="Processing Mode", padx=10, pady=10)
-        self.mode_frame.pack(padx=10, pady=10, fill="x")
+        self.mode_frame.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
 
         self.single_rb = tk.Radiobutton(self.mode_frame, text="Process a Single Image", variable=self.mode, value="single")
         self.single_rb.pack(anchor="w", padx=10, pady=2)
@@ -337,12 +361,12 @@ class ImageEditorGUI:
 
         # File/Folder Selection
         self.selection_frame = tk.Frame(self.controls_frame.scrollable_frame)
-        self.selection_frame.pack(padx=10, pady=5, fill="x")
+        self.selection_frame.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
 
         self.path_label = tk.Label(self.selection_frame, text="Image/Folder Path:")
         self.path_label.pack(side="left", padx=5)
 
-        self.path_entry = tk.Entry(self.selection_frame, width=50)
+        self.path_entry = tk.Entry(self.selection_frame, width=60)
         self.path_entry.pack(side="left", padx=5)
 
         self.browse_button = tk.Button(self.selection_frame, text="Browse", command=self.browse)
@@ -350,7 +374,7 @@ class ImageEditorGUI:
 
         # Description Input
         self.description_frame = tk.Frame(self.controls_frame.scrollable_frame)
-        self.description_frame.pack(padx=10, pady=5, fill="x")
+        self.description_frame.grid(row=2, column=0, padx=10, pady=5, sticky="ew")
 
         self.description_label = tk.Label(self.description_frame, text="Description:")
         self.description_label.pack(side="left", padx=5)
@@ -361,7 +385,7 @@ class ImageEditorGUI:
 
         # Formatting Toolbar
         self.format_toolbar = tk.Frame(self.controls_frame.scrollable_frame)
-        self.format_toolbar.pack(padx=10, pady=5, fill="x")
+        self.format_toolbar.grid(row=3, column=0, padx=10, pady=5, sticky="ew")
 
         self.color_button = tk.Button(self.format_toolbar, text="Change Color", command=self.change_text_color)
         self.color_button.pack(side="left", padx=5)
@@ -374,7 +398,15 @@ class ImageEditorGUI:
 
         # Parameters Group Frame
         self.param_group_frame = tk.Frame(self.controls_frame.scrollable_frame)
-        self.param_group_frame.pack(padx=10, pady=10, fill="both", expand=True)
+        self.param_group_frame.grid(row=4, column=0, padx=10, pady=10, sticky="nsew")
+
+        # Configure grid weights for responsive layout
+        self.param_group_frame.grid_rowconfigure(0, weight=1)
+        self.param_group_frame.grid_rowconfigure(1, weight=1)
+        self.param_group_frame.grid_rowconfigure(2, weight=1)
+        self.param_group_frame.grid_columnconfigure(0, weight=1)
+        self.param_group_frame.grid_columnconfigure(1, weight=1)
+        self.param_group_frame.grid_columnconfigure(2, weight=1)  # For Aspect Ratio Frame
 
         # ---------------------- Updated Layout Starts Here ----------------------
         # Align the Text Settings Frame beside the Icon Settings Frame
@@ -429,9 +461,40 @@ class ImageEditorGUI:
         self.font_size_spinbox.delete(0, tk.END)
         self.font_size_spinbox.insert(0, "24")  # Default font size
 
+        # Aspect Ratio Settings Frame (New Addition)
+        self.aspect_ratio_frame = tk.LabelFrame(self.param_group_frame, text="Aspect Ratio Settings", padx=10, pady=10)
+        self.aspect_ratio_frame.grid(row=0, column=2, padx=5, pady=5, sticky="nsew")  # Aligned beside Text Settings Frame
+
+        # Aspect Ratio Selection
+        self.aspect_ratio_label = tk.Label(self.aspect_ratio_frame, text="Select Aspect Ratio:")
+        self.aspect_ratio_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
+
+        self.aspect_ratio_var = tk.StringVar(value="1:1")
+        self.aspect_ratio_combo = ttk.Combobox(self.aspect_ratio_frame, textvariable=self.aspect_ratio_var, state="readonly")
+        self.aspect_ratio_combo['values'] = ("1:1", "9:16", "16:9", "Custom")
+        self.aspect_ratio_combo.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        self.aspect_ratio_combo.bind("<<ComboboxSelected>>", self.aspect_ratio_selection_changed)
+
+        # Custom Aspect Ratio Inputs (Hidden by Default)
+        self.custom_aspect_frame = tk.Frame(self.aspect_ratio_frame)
+        self.custom_aspect_frame.grid(row=1, column=0, columnspan=2, padx=5, pady=5, sticky="we")
+        self.custom_aspect_frame.grid_remove()  # Hide initially
+
+        self.custom_width_label = tk.Label(self.custom_aspect_frame, text="Width:")
+        self.custom_width_label.pack(side="left", padx=2)
+        self.custom_width_entry = tk.Entry(self.custom_aspect_frame, width=5)
+        self.custom_width_entry.pack(side="left", padx=2)
+        self.custom_width_entry.insert(0, "1")
+
+        self.custom_height_label = tk.Label(self.custom_aspect_frame, text="Height:")
+        self.custom_height_label.pack(side="left", padx=2)
+        self.custom_height_entry = tk.Entry(self.custom_aspect_frame, width=5)
+        self.custom_height_entry.pack(side="left", padx=2)
+        self.custom_height_entry.insert(0, "1")
+
         # Position Adjustments Frame
         self.position_adjustments_frame = tk.LabelFrame(self.param_group_frame, text="Position Adjustments", padx=10, pady=10)
-        self.position_adjustments_frame.grid(row=1, column=0, columnspan=2, padx=5, pady=5, sticky="nsew")  # Below Icon and Text Settings Frames
+        self.position_adjustments_frame.grid(row=1, column=0, columnspan=3, padx=5, pady=5, sticky="nsew")  # Below Icon, Text, and Aspect Ratio Settings
 
         # Line Offset Frame
         self.line_offset_frame = tk.Frame(self.position_adjustments_frame)
@@ -501,7 +564,7 @@ class ImageEditorGUI:
 
         # Line Settings Frame
         self.line_settings_frame = tk.LabelFrame(self.param_group_frame, text="Line Settings", padx=10, pady=10)
-        self.line_settings_frame.grid(row=2, column=0, padx=5, pady=5, sticky="nsew")  # Below Position Adjustments Frame
+        self.line_settings_frame.grid(row=2, column=0, padx=5, pady=5, sticky="nsew")
 
         # Line Transparency with Slider and Entry
         self.line_transparency_label = tk.Label(self.line_settings_frame, text="Line Transparency (%):")
@@ -524,7 +587,7 @@ class ImageEditorGUI:
 
         # Background Settings Frame
         self.bg_settings_frame = tk.LabelFrame(self.param_group_frame, text="Background Settings", padx=10, pady=10)
-        self.bg_settings_frame.grid(row=2, column=1, padx=5, pady=5, sticky="nsew")  # Aligned beside Line Settings Frame
+        self.bg_settings_frame.grid(row=2, column=1, padx=5, pady=5, sticky="nsew")
 
         # Black Background Height Percentage with Slider and Entry
         self.bg_height_label = tk.Label(self.bg_settings_frame, text="Bg Height (%):")
@@ -552,11 +615,11 @@ class ImageEditorGUI:
         # Enable Second Black Background
         self.second_bg_var = tk.BooleanVar(value=False)
         self.enable_second_bg_rb = tk.Checkbutton(self.param_group_frame, text="Enable Second Black Background", variable=self.second_bg_var, command=self.toggle_second_bg)
-        self.enable_second_bg_rb.grid(row=3, column=0, columnspan=2, padx=5, pady=5, sticky="w")  # Positioned below Line and Background Settings Frames
+        self.enable_second_bg_rb.grid(row=3, column=0, columnspan=3, padx=5, pady=5, sticky="w")  # Positioned below Line and Background Settings Frames
 
         # Second Black Background Positioning
         self.second_bg_position_frame = tk.LabelFrame(self.param_group_frame, text="Second Background Position", padx=10, pady=10)
-        self.second_bg_position_frame.grid(row=4, column=0, columnspan=2, padx=5, pady=5, sticky="we")  # Below Enable Second Bg Checkbox
+        self.second_bg_position_frame.grid(row=4, column=0, columnspan=3, padx=5, pady=5, sticky="we")  # Below Enable Second Bg Checkbox
         self.second_bg_position_frame.grid_remove()  # Hide initially
 
         tk.Label(self.second_bg_position_frame, text="X Position:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
@@ -586,15 +649,15 @@ class ImageEditorGUI:
             text="Open Image After Processing", 
             variable=self.open_image_var
         )
-        self.open_image_cb.pack(padx=10, pady=5)  # Pack it before the start button
+        self.open_image_cb.grid(row=5, column=0, padx=10, pady=5, sticky="w")  # Changed from pack to grid
 
         # Start Button should be after this
         self.start_button = tk.Button(self.controls_frame.scrollable_frame, text="Start Processing", command=self.start_processing)
-        self.start_button.pack(padx=10, pady=10)
+        self.start_button.grid(row=6, column=0, padx=10, pady=10, sticky="ew")  # Changed from pack to grid
 
         # Log Display
         self.log_frame = tk.LabelFrame(self.controls_frame.scrollable_frame, text="Log", padx=10, pady=10)
-        self.log_frame.pack(padx=10, pady=10, fill="both", expand=True)
+        self.log_frame.grid(row=7, column=0, padx=10, pady=10, sticky="nsew")  # Changed from pack to grid
 
         self.log_text = tk.Text(self.log_frame, height=10, state='disabled')
         self.log_text.pack(fill="both", expand=True)
@@ -756,6 +819,14 @@ class ImageEditorGUI:
             self.second_bg_position_frame.grid_remove()
         self.update_preview()
 
+    def aspect_ratio_selection_changed(self, event):
+        selection = self.aspect_ratio_var.get()
+        if selection == "Custom":
+            self.custom_aspect_frame.grid()
+        else:
+            self.custom_aspect_frame.grid_remove()
+        self.update_preview()
+
     def bind_preview_events(self):
         # Bind events to update preview when parameters change
         # For Entry and Text widgets, use trace or bind events
@@ -771,6 +842,9 @@ class ImageEditorGUI:
         self.second_bg_transparency_entry.bind("<KeyRelease>", lambda event: self.update_preview())
         self.font_size_spinbox.bind("<KeyRelease>", lambda event: self.update_preview())
         self.font_size_spinbox.bind("<ButtonRelease-1>", lambda event: self.update_preview())
+        # Bind aspect ratio entries
+        self.custom_width_entry.bind("<KeyRelease>", lambda event: self.update_preview())
+        self.custom_height_entry.bind("<KeyRelease>", lambda event: self.update_preview())
 
     def initialize_preview(self):
         # Set default values if not already set
@@ -899,6 +973,27 @@ class ImageEditorGUI:
                 self.logger.warning("Invalid Description Font Size for preview.")
                 return
 
+            # Aspect Ratio Parameters
+            aspect_ratio_selection = self.aspect_ratio_var.get()
+            if aspect_ratio_selection == "Custom":
+                try:
+                    custom_width = float(self.custom_width_entry.get())
+                    custom_height = float(self.custom_height_entry.get())
+                    if custom_width <= 0 or custom_height <= 0:
+                        raise ValueError
+                    aspect_ratio = (custom_width, custom_height)
+                except ValueError:
+                    self.logger.warning("Invalid Custom Aspect Ratio for preview.")
+                    return
+            else:
+                # Predefined aspect ratios
+                ratios = {
+                    "1:1": (1, 1),
+                    "9:16": (9, 16),
+                    "16:9": (16, 9)
+                }
+                aspect_ratio = ratios.get(aspect_ratio_selection, (1, 1))  # Default to 1:1
+
             parameters = {
                 'icon_width_percentage': icon_width_percentage,
                 'icon_height_percentage': icon_height_percentage,
@@ -922,7 +1017,8 @@ class ImageEditorGUI:
                 'second_bg_position_y': second_bg_pos_y,
                 'second_black_bg_height_percentage': second_bg_height_percentage,
                 'second_black_bg_transparency': second_bg_transparency,
-                'description_font_size': description_font_size
+                'description_font_size': description_font_size,
+                'aspect_ratio': aspect_ratio  # Add aspect ratio to parameters
             }
 
             # Generate preview image
@@ -1028,6 +1124,27 @@ class ImageEditorGUI:
             messagebox.showerror("Error", "Please enter a valid Description Font Size between 10 and 100.")
             return
 
+        # Aspect Ratio Parameters
+        aspect_ratio_selection = self.aspect_ratio_var.get()
+        if aspect_ratio_selection == "Custom":
+            try:
+                custom_width = float(self.custom_width_entry.get())
+                custom_height = float(self.custom_height_entry.get())
+                if custom_width <= 0 or custom_height <= 0:
+                    raise ValueError
+                aspect_ratio = (custom_width, custom_height)
+            except ValueError:
+                messagebox.showerror("Error", "Please enter valid Custom Aspect Ratio values.")
+                return
+        else:
+            # Predefined aspect ratios
+            ratios = {
+                "1:1": (1, 1),
+                "9:16": (9, 16),
+                "16:9": (16, 9)
+            }
+            aspect_ratio = ratios.get(aspect_ratio_selection, (1, 1))  # Default to 1:1
+
         parameters = {
             'icon_width_percentage': icon_width_percentage,
             'icon_height_percentage': icon_height_percentage,
@@ -1051,7 +1168,8 @@ class ImageEditorGUI:
             'second_bg_position_y': second_bg_pos_y,
             'second_black_bg_height_percentage': second_bg_height_percentage,
             'second_black_bg_transparency': second_bg_transparency,
-            'description_font_size': description_font_size
+            'description_font_size': description_font_size,
+            'aspect_ratio': aspect_ratio  # Add aspect ratio to parameters
         }
 
         # Update font path in config
