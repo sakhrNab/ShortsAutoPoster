@@ -3,13 +3,13 @@
 import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk, colorchooser
-from PIL import ImageTk
+from PIL import ImageTk, ImageFont
 import threading
 import time
 import platform
 from multiprocessing import Pool, cpu_count
 from functools import partial
-import logging  # Added import for logging
+import logging
 
 from .scrollable_frame import ScrollableFrame
 from image_processor import process_image, process_images_in_batch
@@ -21,36 +21,31 @@ class ImageEditorGUI:
         self.config = config
         self.logger = logger
         master.title("Automated Image Editor")
-        master.geometry("1200x800")  # Increased width to accommodate new Aspect Ratio frame
-        master.resizable(True, True)  # Allow window to be resizable
+        master.geometry("1400x800")
+        master.resizable(True, True)
 
-        # Apply a modern theme
         style = ttk.Style()
         if platform.system() == 'Windows':
             style.theme_use('vista')
         elif platform.system() == 'Darwin':
             style.theme_use('clam')
         else:
-            style.theme_use('clam')  # Fallback theme
+            style.theme_use('clam')
 
-        # Create PanedWindow
         self.paned_window = ttk.Panedwindow(master, orient=tk.HORIZONTAL)
         self.paned_window.pack(fill=tk.BOTH, expand=True)
 
-        # Left pane: Scrollable controls
         self.controls_frame = ScrollableFrame(self.paned_window)
         self.paned_window.add(self.controls_frame, weight=3)
 
-        # Initialize a separate preview window
         self.preview_window = tk.Toplevel(master)
         self.preview_window.title("Live Preview")
-        self.preview_window.geometry("500x500")  # Increased size for better visibility
+        self.preview_window.geometry("600x600")
         self.preview_window.resizable(True, True)
         self.preview_label = tk.Label(self.preview_window)
         self.preview_label.pack(fill="both", expand=True)
         self.preview_window.attributes('-topmost', True)
 
-        # Bind the main window close event to also close the preview window
         master.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         # Processing Mode
@@ -79,15 +74,23 @@ class ImageEditorGUI:
         self.browse_button.pack(side="left", padx=5)
 
         # Description Input
-        self.description_frame = tk.Frame(self.controls_frame.scrollable_frame)
+        self.description_frame = tk.LabelFrame(self.controls_frame.scrollable_frame, text="Descriptions", padx=10, pady=10)
         self.description_frame.grid(row=2, column=0, padx=10, pady=5, sticky="ew")
 
-        self.description_label = tk.Label(self.description_frame, text="Description:")
-        self.description_label.pack(side="left", padx=5)
+        self.descriptions_listbox = tk.Listbox(self.description_frame, selectmode=tk.SINGLE, width=50, height=5)
+        self.descriptions_listbox.pack(side="left", padx=5, pady=5)
 
-        self.description_text = tk.Text(self.description_frame, height=2, width=50)
-        self.description_text.pack(side="left", padx=5)
-        self.description_text.insert("1.0", self.config.get("DESCRIPTION", "Your Brand Description"))
+        self.desc_buttons_frame = tk.Frame(self.description_frame)
+        self.desc_buttons_frame.pack(side="left", padx=5, pady=5)
+
+        self.add_desc_button = tk.Button(self.desc_buttons_frame, text="Add Description", command=self.add_description)
+        self.add_desc_button.pack(fill="x", pady=2)
+
+        self.delete_desc_button = tk.Button(self.desc_buttons_frame, text="Delete Description", command=self.delete_description)
+        self.delete_desc_button.pack(fill="x", pady=2)
+
+        self.description_text = tk.Text(self.description_frame, height=5, width=50)
+        self.description_text.pack(side="left", padx=5, pady=5)
 
         # Formatting Toolbar
         self.format_toolbar = tk.Frame(self.controls_frame.scrollable_frame)
@@ -106,16 +109,12 @@ class ImageEditorGUI:
         self.param_group_frame = tk.Frame(self.controls_frame.scrollable_frame)
         self.param_group_frame.grid(row=4, column=0, padx=10, pady=10, sticky="nsew")
 
-        # Configure grid weights for responsive layout
         self.param_group_frame.grid_rowconfigure(0, weight=1)
         self.param_group_frame.grid_rowconfigure(1, weight=1)
         self.param_group_frame.grid_rowconfigure(2, weight=1)
         self.param_group_frame.grid_columnconfigure(0, weight=1)
         self.param_group_frame.grid_columnconfigure(1, weight=1)
-        self.param_group_frame.grid_columnconfigure(2, weight=1)  # For Aspect Ratio Frame
-
-        # ---------------------- Updated Layout Starts Here ----------------------
-        # Align the Text Settings Frame beside the Icon Settings Frame
+        self.param_group_frame.grid_columnconfigure(2, weight=1)
 
         # Icon Settings Frame
         self.icon_settings_frame = tk.LabelFrame(self.param_group_frame, text="Icon Settings", padx=10, pady=10)
@@ -145,7 +144,7 @@ class ImageEditorGUI:
 
         # Text Settings Frame
         self.text_settings_frame = tk.LabelFrame(self.param_group_frame, text="Text Settings", padx=10, pady=10)
-        self.text_settings_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")  # Aligned beside Icon Settings Frame
+        self.text_settings_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
 
         # Text Color with Button
         self.text_color_label = tk.Label(self.text_settings_frame, text="Text Color:")
@@ -165,11 +164,11 @@ class ImageEditorGUI:
         self.font_size_spinbox = tk.Spinbox(self.text_settings_frame, from_=10, to=100, width=5, command=self.update_preview)
         self.font_size_spinbox.grid(row=2, column=1, padx=5, pady=5, sticky="w")
         self.font_size_spinbox.delete(0, tk.END)
-        self.font_size_spinbox.insert(0, "24")  # Default font size
+        self.font_size_spinbox.insert(0, "24")
 
-        # Aspect Ratio Settings Frame (New Addition)
+        # Aspect Ratio Settings Frame
         self.aspect_ratio_frame = tk.LabelFrame(self.param_group_frame, text="Aspect Ratio Settings", padx=10, pady=10)
-        self.aspect_ratio_frame.grid(row=0, column=2, padx=5, pady=5, sticky="nsew")  # Aligned beside Text Settings Frame
+        self.aspect_ratio_frame.grid(row=0, column=2, padx=5, pady=5, sticky="nsew")
 
         # Aspect Ratio Selection
         self.aspect_ratio_label = tk.Label(self.aspect_ratio_frame, text="Select Aspect Ratio:")
@@ -184,7 +183,7 @@ class ImageEditorGUI:
         # Custom Aspect Ratio Inputs (Hidden by Default)
         self.custom_aspect_frame = tk.Frame(self.aspect_ratio_frame)
         self.custom_aspect_frame.grid(row=1, column=0, columnspan=2, padx=5, pady=5, sticky="we")
-        self.custom_aspect_frame.grid_remove()  # Hide initially
+        self.custom_aspect_frame.grid_remove()
 
         self.custom_width_label = tk.Label(self.custom_aspect_frame, text="Width:")
         self.custom_width_label.pack(side="left", padx=2)
@@ -200,7 +199,7 @@ class ImageEditorGUI:
 
         # Position Adjustments Frame
         self.position_adjustments_frame = tk.LabelFrame(self.param_group_frame, text="Position Adjustments", padx=10, pady=10)
-        self.position_adjustments_frame.grid(row=1, column=0, columnspan=3, padx=5, pady=5, sticky="nsew")  # Below Icon, Text, and Aspect Ratio Settings
+        self.position_adjustments_frame.grid(row=1, column=0, columnspan=3, padx=5, pady=5, sticky="nsew")
 
         # Line Offset Frame
         self.line_offset_frame = tk.Frame(self.position_adjustments_frame)
@@ -316,75 +315,70 @@ class ImageEditorGUI:
         self.bg_transparency_entry.grid(row=1, column=2, padx=5, pady=5, sticky="w")
         self.bg_transparency_slider.set(50)
         self.bg_transparency_entry.insert(0, "50")
-        # ---------------------- Updated Layout Ends Here ------------------------
 
         # Enable Second Black Background
         self.second_bg_var = tk.BooleanVar(value=False)
         self.enable_second_bg_rb = tk.Checkbutton(self.param_group_frame, text="Enable Second Black Background", variable=self.second_bg_var, command=self.toggle_second_bg)
-        self.enable_second_bg_rb.grid(row=3, column=0, columnspan=3, padx=5, pady=5, sticky="w")  # Positioned below Line and Background Settings Frames
+        self.enable_second_bg_rb.grid(row=3, column=0, columnspan=3, padx=5, pady=5, sticky="w")
 
         # Second Black Background Positioning
         self.second_bg_position_frame = tk.LabelFrame(self.param_group_frame, text="Second Background Position", padx=10, pady=10)
-        self.second_bg_position_frame.grid(row=4, column=0, columnspan=3, padx=5, pady=5, sticky="we")  # Below Enable Second Bg Checkbox
-        self.second_bg_position_frame.grid_remove()  # Hide initially
+        self.second_bg_position_frame.grid(row=4, column=0, columnspan=3, padx=5, pady=5, sticky="we")
+        self.second_bg_position_frame.grid_remove()
 
         tk.Label(self.second_bg_position_frame, text="X Position:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
         self.second_bg_pos_x_entry = tk.Entry(self.second_bg_position_frame, width=5)
         self.second_bg_pos_x_entry.grid(row=0, column=1, padx=5, pady=5, sticky="w")
-        self.second_bg_pos_x_entry.insert(0, "0")  # Default X position
+        self.second_bg_pos_x_entry.insert(0, "0")
 
         tk.Label(self.second_bg_position_frame, text="Y Position:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
         self.second_bg_pos_y_entry = tk.Entry(self.second_bg_position_frame, width=5)
         self.second_bg_pos_y_entry.grid(row=1, column=1, padx=5, pady=5, sticky="w")
-        self.second_bg_pos_y_entry.insert(0, "0")  # Default Y position
+        self.second_bg_pos_y_entry.insert(0, "0")
 
         tk.Label(self.second_bg_position_frame, text="Height (%):").grid(row=2, column=0, padx=5, pady=5, sticky="e")
         self.second_bg_height_entry = tk.Entry(self.second_bg_position_frame, width=5)
         self.second_bg_height_entry.grid(row=2, column=1, padx=5, pady=5, sticky="w")
-        self.second_bg_height_entry.insert(0, "10")  # Default height percentage
+        self.second_bg_height_entry.insert(0, "10")
 
         tk.Label(self.second_bg_position_frame, text="Transparency (%):").grid(row=3, column=0, padx=5, pady=5, sticky="e")
         self.second_bg_transparency_entry = tk.Entry(self.second_bg_position_frame, width=5)
         self.second_bg_transparency_entry.grid(row=3, column=1, padx=5, pady=5, sticky="w")
-        self.second_bg_transparency_entry.insert(0, "50")  # Default transparency
+        self.second_bg_transparency_entry.insert(0, "50")
 
-        # Add Open Image Checkbox (near the start button)
-        self.open_image_var = tk.BooleanVar(value=True)  # Default to True
+        # Add Open Image Checkbox
+        self.open_image_var = tk.BooleanVar(value=True)
         self.open_image_cb = tk.Checkbutton(
             self.controls_frame.scrollable_frame, 
             text="Open Image After Processing", 
             variable=self.open_image_var
         )
-        self.open_image_cb.grid(row=5, column=0, padx=10, pady=5, sticky="w")  # Changed from pack to grid
+        self.open_image_cb.grid(row=5, column=0, padx=10, pady=5, sticky="w")
 
-        # Start Button should be after this
+        # Start Button
         self.start_button = tk.Button(self.controls_frame.scrollable_frame, text="Start Processing", command=self.start_processing)
-        self.start_button.grid(row=6, column=0, padx=10, pady=10, sticky="ew")  # Changed from pack to grid
+        self.start_button.grid(row=6, column=0, padx=10, pady=10, sticky="ew")
 
         # Log Display
         self.log_frame = tk.LabelFrame(self.controls_frame.scrollable_frame, text="Log", padx=10, pady=10)
-        self.log_frame.grid(row=7, column=0, padx=10, pady=10, sticky="nsew")  # Changed from pack to grid
+        self.log_frame.grid(row=7, column=0, padx=10, pady=10, sticky="nsew")
 
         self.log_text = tk.Text(self.log_frame, height=10, state='disabled')
         self.log_text.pack(fill="both", expand=True)
 
-        # Configure logging to also write to the log_text widget
         self.setup_gui_logging()
 
-        # Initialize the preview image
         self.preview_image = None
         self.preview_thread = None
         self.preview_lock = threading.Lock()
         self.last_preview_time = time.time()
 
-        # Initialize with default parameters
+        self.descriptions = []
         self.initialize_preview()
 
-        # Bind preview update events
         self.bind_preview_events()
 
     def setup_gui_logging(self):
-        # Create a handler that writes log messages to the Text widget
         class TextHandler(logging.Handler):
             def __init__(self, text_widget):
                 super().__init__()
@@ -397,7 +391,6 @@ class ImageEditorGUI:
                 self.text_widget.configure(state='disabled')
                 self.text_widget.see(tk.END)
 
-        # Correct Formatter with 'levelname'
         text_handler = TextHandler(self.log_text)
         text_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
         self.logger.addHandler(text_handler)
@@ -418,13 +411,30 @@ class ImageEditorGUI:
                 self.logger.info(f"Selected folder: {folder_path}")
         self.update_preview()
 
-    # Text Formatting Methods
+    def add_description(self):
+        desc = self.description_text.get("1.0", tk.END).strip()
+        if desc:
+            self.descriptions.append(desc)
+            self.descriptions_listbox.insert(tk.END, desc)
+            self.description_text.delete("1.0", tk.END)
+            self.logger.info("Added new description.")
+            self.update_preview()
+
+    def delete_description(self):
+        selected = self.descriptions_listbox.curselection()
+        if selected:
+            index = selected[0]
+            desc = self.descriptions.pop(index)
+            self.descriptions_listbox.delete(index)
+            self.logger.info(f"Deleted description: {desc}")
+            self.update_preview()
+
     def change_text_color(self):
         color_code = colorchooser.askcolor(title="Choose Text Color")
         if color_code and color_code[1]:
             selected_text = self.description_text.tag_ranges(tk.SEL)
             if selected_text:
-                tag_name = f"color_{color_code[1][1:]}"  # e.g., color_ff0000
+                tag_name = f"color_{color_code[1][1:]}"
                 self.description_text.tag_add(tag_name, "sel.first", "sel.last")
                 self.description_text.tag_config(tag_name, foreground=color_code[1])
                 self.logger.info(f"Changed color of selected text to {color_code[1]}")
@@ -437,7 +447,6 @@ class ImageEditorGUI:
                 self.description_text.tag_remove(tag_name, "sel.first", "sel.last")
             else:
                 self.description_text.tag_add(tag_name, "sel.first", "sel.last")
-                # Note: To implement bold, you may need a separate bold font file
                 try:
                     bold_font = ImageFont.truetype(self.config['FONT_PATH'], int(self.font_size_spinbox.get()))
                     self.description_text.tag_config(tag_name, font=bold_font)
@@ -453,7 +462,6 @@ class ImageEditorGUI:
                 self.description_text.tag_remove(tag_name, "sel.first", "sel.last")
             else:
                 self.description_text.tag_add(tag_name, "sel.first", "sel.last")
-                # Note: To implement italic, you may need a separate italic font file
                 try:
                     italic_font = ImageFont.truetype(self.config['FONT_PATH'], int(self.font_size_spinbox.get()))
                     self.description_text.tag_config(tag_name, font=italic_font)
@@ -513,8 +521,7 @@ class ImageEditorGUI:
         self.update_preview()
 
     def bind_preview_events(self):
-        # Bind events to update preview when parameters change
-        # For Entry and Text widgets, use trace or bind events
+        self.descriptions_listbox.bind('<<ListboxSelect>>', self.update_description_text)
         self.description_text.bind("<KeyRelease>", lambda event: self.update_preview())
         self.icon_width_entry.bind("<KeyRelease>", lambda event: self.update_preview())
         self.icon_height_entry.bind("<KeyRelease>", lambda event: self.update_preview())
@@ -527,35 +534,34 @@ class ImageEditorGUI:
         self.second_bg_transparency_entry.bind("<KeyRelease>", lambda event: self.update_preview())
         self.font_size_spinbox.bind("<KeyRelease>", lambda event: self.update_preview())
         self.font_size_spinbox.bind("<ButtonRelease-1>", lambda event: self.update_preview())
-        # Bind aspect ratio entries
         self.custom_width_entry.bind("<KeyRelease>", lambda event: self.update_preview())
         self.custom_height_entry.bind("<KeyRelease>", lambda event: self.update_preview())
 
+    def update_description_text(self, event):
+        selected = self.descriptions_listbox.curselection()
+        if selected:
+            index = selected[0]
+            desc = self.descriptions[index]
+            self.description_text.delete("1.0", tk.END)
+            self.description_text.insert("1.0", desc)
+
     def initialize_preview(self):
-        # Set default values if not already set
         self.line_color = self.config.get("LINE_COLOR", (255, 255, 255))
         self.line_gradient_start = self.config.get("LINE_GRADIENT_START", (255, 69, 0))
         self.line_gradient_end = self.config.get("LINE_GRADIENT_END", (30, 144, 255))
         self.text_color = self.config.get("TEXT_COLOR", (255, 255, 255))
 
-        # Start the initial preview
         self.update_preview()
 
     def update_preview(self, event=None):
-        if hasattr(self, 'preview_after_id'):
-            self.preview_window.after_cancel(self.preview_after_id)
-        self.preview_after_id = self.preview_window.after(300, self.generate_preview)
-        # Debounce the preview updates to avoid excessive processing
         current_time = time.time()
         if current_time - self.last_preview_time < 0.3:
             return
         self.last_preview_time = current_time
 
-        # Cancel previous preview thread if running
         if self.preview_thread and self.preview_thread.is_alive():
-            return  # Let the existing thread finish
+            return
 
-        # Start a new thread for preview
         self.preview_thread = threading.Thread(target=self.generate_preview)
         self.preview_thread.daemon = True
         self.preview_thread.start()
@@ -570,17 +576,14 @@ class ImageEditorGUI:
             if self.mode.get() == "single":
                 image_paths = [path]
             else:
-                # Collect all image paths
                 image_paths = [os.path.join(path, f) for f in os.listdir(path)
                                if f.lower().endswith((".png", ".jpg", ".jpeg"))]
                 if not image_paths:
                     self.logger.warning("No image files found for preview.")
                     return
 
-            # For preview, only process the first image
             image_path = image_paths[0]
 
-            # Gather parameters
             try:
                 icon_width_percentage = float(self.icon_width_entry.get())
                 if not (0 < icon_width_percentage < 100):
@@ -622,9 +625,7 @@ class ImageEditorGUI:
                 return
 
             line_type = self.line_type_var.get()
-            # open_image = self.open_image_var.get()  # Not needed for preview
 
-            # Gather position adjustments
             line_offset_x = self.line_offset_x_slider.get()
             line_offset_y = self.line_offset_y_slider.get()
             description_offset_x = self.desc_offset_x_slider.get()
@@ -632,9 +633,8 @@ class ImageEditorGUI:
             icon_offset_x = self.icon_offset_x_slider.get()
             icon_offset_y = self.icon_offset_y_slider.get()
 
-            description = self.description_text.get("1.0", tk.END).strip()
+            descriptions = self.descriptions
 
-            # Gather second background parameters if enabled
             enable_second_bg = self.second_bg_var.get()
             if enable_second_bg:
                 try:
@@ -661,7 +661,6 @@ class ImageEditorGUI:
                 self.logger.warning("Invalid Description Font Size for preview.")
                 return
 
-            # Aspect Ratio Parameters
             aspect_ratio_selection = self.aspect_ratio_var.get()
             if aspect_ratio_selection == "Custom":
                 try:
@@ -674,13 +673,12 @@ class ImageEditorGUI:
                     self.logger.warning("Invalid Custom Aspect Ratio for preview.")
                     return
             else:
-                # Predefined aspect ratios
                 ratios = {
                     "1:1": (1, 1),
                     "9:16": (9, 16),
                     "16:9": (16, 9)
                 }
-                aspect_ratio = ratios.get(aspect_ratio_selection, (1, 1))  # Default to 1:1
+                aspect_ratio = ratios.get(aspect_ratio_selection, (1, 1))
 
             parameters = {
                 'icon_width_percentage': icon_width_percentage,
@@ -689,7 +687,7 @@ class ImageEditorGUI:
                 'black_bg_transparency': bg_transparency,
                 'line_transparency': line_transparency,
                 'line_type': line_type,
-                'open_image': False,  # No need to open image in preview
+                'open_image': False,
                 'line_color': self.line_color,
                 'line_gradient_start': self.line_gradient_start,
                 'line_gradient_end': self.line_gradient_end,
@@ -698,31 +696,27 @@ class ImageEditorGUI:
                 'description_offset_y': description_offset_y,
                 'icon_offset_x': icon_offset_x,
                 'icon_offset_y': icon_offset_y,
-                'description': description,
-                'line_offset_y': line_offset_y,  # Ensure this parameter is included
+                'descriptions': descriptions,
+                'line_offset_y': line_offset_y,
                 'enable_second_bg': enable_second_bg,
                 'second_bg_position_x': second_bg_pos_x,
                 'second_bg_position_y': second_bg_pos_y,
                 'second_black_bg_height_percentage': second_bg_height_percentage,
                 'second_black_bg_transparency': second_bg_transparency,
                 'description_font_size': description_font_size,
-                'aspect_ratio': aspect_ratio  # Add aspect ratio to parameters
+                'aspect_ratio': aspect_ratio
             }
 
-            # Generate preview image
             preview_img = process_image(image_path, self.config, parameters, self.logger, preview=True)
             if preview_img:
-                # Convert PIL image to ImageTk for Tkinter
                 preview_img_tk = ImageTk.PhotoImage(preview_img)
-                # Update the preview_label in the main thread
                 self.preview_label.after(0, self.display_preview, preview_img_tk)
             else:
                 self.logger.warning("Failed to generate preview.")
 
     def display_preview(self, img_tk):
         self.preview_label.configure(image=img_tk)
-        self.preview_label.image = img_tk  # Keep a reference to prevent garbage collection
-        # Optionally adjust the preview window size based on image
+        self.preview_label.image = img_tk
         self.preview_window.geometry(f"{img_tk.width()}x{img_tk.height()}")
 
     def start_processing(self):
@@ -731,7 +725,6 @@ class ImageEditorGUI:
             messagebox.showerror("Error", "Please select an image or folder path.")
             return
 
-        # Collect and validate parameters
         try:
             icon_width_percentage = float(self.icon_width_entry.get())
             if not (0 < icon_width_percentage < 100):
@@ -773,9 +766,7 @@ class ImageEditorGUI:
             return
 
         line_type = self.line_type_var.get()
-        open_image = self.open_image_var.get()
 
-        # Gather position adjustments
         line_offset_x = self.line_offset_x_slider.get()
         line_offset_y = self.line_offset_y_slider.get()
         description_offset_x = self.desc_offset_x_slider.get()
@@ -783,9 +774,8 @@ class ImageEditorGUI:
         icon_offset_x = self.icon_offset_x_slider.get()
         icon_offset_y = self.icon_offset_y_slider.get()
 
-        description = self.description_text.get("1.0", tk.END).strip()
+        descriptions = self.descriptions
 
-        # Gather second background parameters if enabled
         enable_second_bg = self.second_bg_var.get()
         if enable_second_bg:
             try:
@@ -812,7 +802,6 @@ class ImageEditorGUI:
             messagebox.showerror("Error", "Please enter a valid Description Font Size between 10 and 100.")
             return
 
-        # Aspect Ratio Parameters
         aspect_ratio_selection = self.aspect_ratio_var.get()
         if aspect_ratio_selection == "Custom":
             try:
@@ -825,13 +814,12 @@ class ImageEditorGUI:
                 messagebox.showerror("Error", "Please enter valid Custom Aspect Ratio values.")
                 return
         else:
-            # Predefined aspect ratios
             ratios = {
                 "1:1": (1, 1),
                 "9:16": (9, 16),
                 "16:9": (16, 9)
             }
-            aspect_ratio = ratios.get(aspect_ratio_selection, (1, 1))  # Default to 1:1
+            aspect_ratio = ratios.get(aspect_ratio_selection, (1, 1))
 
         parameters = {
             'icon_width_percentage': icon_width_percentage,
@@ -840,7 +828,7 @@ class ImageEditorGUI:
             'black_bg_transparency': bg_transparency,
             'line_transparency': line_transparency,
             'line_type': line_type,
-            'open_image': open_image,
+            'open_image': self.open_image_var.get(),
             'line_color': self.line_color,
             'line_gradient_start': self.line_gradient_start,
             'line_gradient_end': self.line_gradient_end,
@@ -849,22 +837,20 @@ class ImageEditorGUI:
             'description_offset_y': description_offset_y,
             'icon_offset_x': icon_offset_x,
             'icon_offset_y': icon_offset_y,
-            'description': description,
-            'line_offset_y': line_offset_y,  # Ensure this parameter is included
+            'descriptions': descriptions,
+            'line_offset_y': line_offset_y,
             'enable_second_bg': enable_second_bg,
             'second_bg_position_x': second_bg_pos_x,
             'second_bg_position_y': second_bg_pos_y,
             'second_black_bg_height_percentage': second_bg_height_percentage,
             'second_black_bg_transparency': second_bg_transparency,
             'description_font_size': description_font_size,
-            'aspect_ratio': aspect_ratio  # Add aspect ratio to parameters
+            'aspect_ratio': aspect_ratio
         }
 
-        # Update font path in config
         if hasattr(self, 'selected_font'):
             self.config['FONT_PATH'] = self.selected_font
         else:
-            # If selected_font is not set, use the default from config
             self.config['FONT_PATH'] = self.config.get("FONT_PATH", "C:/Windows/Fonts/arial.ttf")
             self.logger.warning("selected_font not found. Using default font path.")
 
@@ -880,7 +866,6 @@ class ImageEditorGUI:
             if not os.path.isdir(path):
                 messagebox.showerror("Error", "Selected path is not a valid folder.")
                 return
-            # Collect all image paths
             image_files = [os.path.join(path, f) for f in os.listdir(path)
                            if f.lower().endswith((".png", ".jpg", ".jpeg"))]
             if not image_files:
@@ -893,13 +878,11 @@ class ImageEditorGUI:
             messagebox.showinfo("Success", f"Batch processing completed. {len(image_files)} images processed.")
 
     def sync_slider_entry(self, value, entry_widget):
-        """Synchronize slider value with entry widget and trigger preview update"""
         entry_widget.delete(0, tk.END)
         entry_widget.insert(0, str(int(float(value))))
         self.update_preview()
 
     def sync_entry_slider(self, event, entry_widget, slider_widget):
-        """Synchronize entry value with slider widget and trigger preview update"""
         try:
             value = int(float(entry_widget.get()))
             slider_widget.set(value)
@@ -910,27 +893,3 @@ class ImageEditorGUI:
     def on_closing(self):
         self.preview_window.destroy()
         self.master.destroy()
-
-    def get_tags_from_description(self):
-        # Extract tags and associated text
-        tags = []
-        index = "1.0"
-        while True:
-            if index == '':
-                break
-            # Get next tag
-            current_tags = self.description_text.tag_names(index)
-            if current_tags:
-                for tag in current_tags:
-                    if tag.startswith("color_") or tag in ["bold", "italic"]:
-                        # Get the text for this tag
-                        tag_ranges = self.description_text.tag_ranges(tag)
-                        for i in range(0, len(tag_ranges), 2):
-                            start = tag_ranges[i]
-                            end = tag_ranges[i+1]
-                            text = self.description_text.get(start, end)
-                            tags.append((tag, text))
-            index = self.description_text.index(f"{index} +1c")
-            if index.startswith(str(float(index))):  # If index becomes invalid, break
-                break
-        return tags
