@@ -376,6 +376,9 @@ class ImageEditorGUI:
         self.param_group_frame = tk.Frame(self.controls_frame.scrollable_frame)
         self.param_group_frame.pack(padx=10, pady=10, fill="both", expand=True)
 
+        # ---------------------- Updated Layout Starts Here ----------------------
+        # Align the Text Settings Frame beside the Icon Settings Frame
+
         # Icon Settings Frame
         self.icon_settings_frame = tk.LabelFrame(self.param_group_frame, text="Icon Settings", padx=10, pady=10)
         self.icon_settings_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
@@ -402,58 +405,9 @@ class ImageEditorGUI:
         self.icon_height_slider.set(15)
         self.icon_height_entry.insert(0, "15")
 
-        # Background Settings Frame
-        self.bg_settings_frame = tk.LabelFrame(self.param_group_frame, text="Background Settings", padx=10, pady=10)
-        self.bg_settings_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
-
-        # Black Background Height Percentage with Slider and Entry
-        self.bg_height_label = tk.Label(self.bg_settings_frame, text="Bg Height (%):")
-        self.bg_height_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
-        self.bg_height_slider = tk.Scale(self.bg_settings_frame, from_=1, to=100, orient="horizontal",
-                                       command=lambda v: self.sync_slider_entry(v, self.bg_height_entry))
-        self.bg_height_slider.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-        self.bg_height_entry = tk.Entry(self.bg_settings_frame, width=5)
-        self.bg_height_entry.grid(row=0, column=2, padx=5, pady=5, sticky="w")
-        self.bg_height_slider.set(15)
-        self.bg_height_entry.insert(0, "15")
-
-        # Black Background Transparency with Slider and Entry
-        self.bg_transparency_label = tk.Label(self.bg_settings_frame, text="Bg Transparency (%):")
-        self.bg_transparency_label.grid(row=1, column=0, padx=5, pady=5, sticky="e")
-        self.bg_transparency_slider = tk.Scale(self.bg_settings_frame, from_=0, to=100, orient="horizontal",
-                                             command=lambda v: self.sync_slider_entry(v, self.bg_transparency_entry))
-        self.bg_transparency_slider.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
-        self.bg_transparency_entry = tk.Entry(self.bg_settings_frame, width=5)
-        self.bg_transparency_entry.grid(row=1, column=2, padx=5, pady=5, sticky="w")
-        self.bg_transparency_slider.set(50)
-        self.bg_transparency_entry.insert(0, "50")
-
-        # Line Settings Frame
-        self.line_settings_frame = tk.LabelFrame(self.param_group_frame, text="Line Settings", padx=10, pady=10)
-        self.line_settings_frame.grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
-
-        # Line Transparency with Slider and Entry
-        self.line_transparency_label = tk.Label(self.line_settings_frame, text="Line Transparency (%):")
-        self.line_transparency_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
-        self.line_transparency_slider = tk.Scale(self.line_settings_frame, from_=0, to=100, orient="horizontal",
-                                               command=lambda v: self.sync_slider_entry(v, self.line_transparency_entry))
-        self.line_transparency_slider.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-        self.line_transparency_entry = tk.Entry(self.line_settings_frame, width=5)
-        self.line_transparency_entry.grid(row=0, column=2, padx=5, pady=5, sticky="w")
-        self.line_transparency_slider.set(100)
-        self.line_transparency_entry.insert(0, "100")
-
-        # Line Type Selection
-        self.line_type_label = tk.Label(self.line_settings_frame, text="Line Type:")
-        self.line_type_label.grid(row=1, column=0, padx=5, pady=5, sticky="e")
-        self.line_type_var = tk.StringVar(value="Solid")
-        self.line_type_combo = ttk.Combobox(self.line_settings_frame, textvariable=self.line_type_var, state="readonly")
-        self.line_type_combo['values'] = ("Solid", "Dashed", "Gradient")
-        self.line_type_combo.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
-
         # Text Settings Frame
         self.text_settings_frame = tk.LabelFrame(self.param_group_frame, text="Text Settings", padx=10, pady=10)
-        self.text_settings_frame.grid(row=1, column=1, padx=5, pady=5, sticky="nsew")
+        self.text_settings_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")  # Aligned beside Icon Settings Frame
 
         # Text Color with Button
         self.text_color_label = tk.Label(self.text_settings_frame, text="Text Color:")
@@ -475,39 +429,9 @@ class ImageEditorGUI:
         self.font_size_spinbox.delete(0, tk.END)
         self.font_size_spinbox.insert(0, "24")  # Default font size
 
-        # Enable Second Black Background
-        self.second_bg_var = tk.BooleanVar(value=False)
-        self.enable_second_bg_rb = tk.Checkbutton(self.param_group_frame, text="Enable Second Black Background", variable=self.second_bg_var, command=self.toggle_second_bg)
-        self.enable_second_bg_rb.grid(row=2, column=0, columnspan=2, padx=5, pady=5, sticky="w")
-
-        # Second Black Background Positioning
-        self.second_bg_position_frame = tk.LabelFrame(self.param_group_frame, text="Second Background Position", padx=10, pady=10)
-        self.second_bg_position_frame.grid(row=3, column=0, columnspan=2, padx=5, pady=5, sticky="we")
-        self.second_bg_position_frame.grid_remove()  # Hide initially
-
-        tk.Label(self.second_bg_position_frame, text="X Position:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
-        self.second_bg_pos_x_entry = tk.Entry(self.second_bg_position_frame, width=5)
-        self.second_bg_pos_x_entry.grid(row=0, column=1, padx=5, pady=5, sticky="w")
-        self.second_bg_pos_x_entry.insert(0, "0")  # Default X position
-
-        tk.Label(self.second_bg_position_frame, text="Y Position:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
-        self.second_bg_pos_y_entry = tk.Entry(self.second_bg_position_frame, width=5)
-        self.second_bg_pos_y_entry.grid(row=1, column=1, padx=5, pady=5, sticky="w")
-        self.second_bg_pos_y_entry.insert(0, "0")  # Default Y position
-
-        tk.Label(self.second_bg_position_frame, text="Height (%):").grid(row=2, column=0, padx=5, pady=5, sticky="e")
-        self.second_bg_height_entry = tk.Entry(self.second_bg_position_frame, width=5)
-        self.second_bg_height_entry.grid(row=2, column=1, padx=5, pady=5, sticky="w")
-        self.second_bg_height_entry.insert(0, "10")  # Default height percentage
-
-        tk.Label(self.second_bg_position_frame, text="Transparency (%):").grid(row=3, column=0, padx=5, pady=5, sticky="e")
-        self.second_bg_transparency_entry = tk.Entry(self.second_bg_position_frame, width=5)
-        self.second_bg_transparency_entry.grid(row=3, column=1, padx=5, pady=5, sticky="w")
-        self.second_bg_transparency_entry.insert(0, "50")  # Default transparency
-
-        # Position Adjustments with grouped layout
-        self.position_adjustments_frame = tk.LabelFrame(self.controls_frame.scrollable_frame, text="Position Adjustments", padx=10, pady=10)
-        self.position_adjustments_frame.pack(padx=10, pady=10, fill="x")
+        # Position Adjustments Frame
+        self.position_adjustments_frame = tk.LabelFrame(self.param_group_frame, text="Position Adjustments", padx=10, pady=10)
+        self.position_adjustments_frame.grid(row=1, column=0, columnspan=2, padx=5, pady=5, sticky="nsew")  # Below Icon and Text Settings Frames
 
         # Line Offset Frame
         self.line_offset_frame = tk.Frame(self.position_adjustments_frame)
@@ -574,6 +498,86 @@ class ImageEditorGUI:
         self.icon_offset_y_slider.set(0)
         self.icon_offset_y_entry.insert(0, "0")
         self.icon_offset_y_entry.bind("<Return>", lambda event: self.sync_entry_slider(event, self.icon_offset_y_entry, self.icon_offset_y_slider))
+
+        # Line Settings Frame
+        self.line_settings_frame = tk.LabelFrame(self.param_group_frame, text="Line Settings", padx=10, pady=10)
+        self.line_settings_frame.grid(row=2, column=0, padx=5, pady=5, sticky="nsew")  # Below Position Adjustments Frame
+
+        # Line Transparency with Slider and Entry
+        self.line_transparency_label = tk.Label(self.line_settings_frame, text="Line Transparency (%):")
+        self.line_transparency_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        self.line_transparency_slider = tk.Scale(self.line_settings_frame, from_=0, to=100, orient="horizontal",
+                                               command=lambda v: self.sync_slider_entry(v, self.line_transparency_entry))
+        self.line_transparency_slider.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        self.line_transparency_entry = tk.Entry(self.line_settings_frame, width=5)
+        self.line_transparency_entry.grid(row=0, column=2, padx=5, pady=5, sticky="w")
+        self.line_transparency_slider.set(100)
+        self.line_transparency_entry.insert(0, "100")
+
+        # Line Type Selection
+        self.line_type_label = tk.Label(self.line_settings_frame, text="Line Type:")
+        self.line_type_label.grid(row=1, column=0, padx=5, pady=5, sticky="e")
+        self.line_type_var = tk.StringVar(value="Solid")
+        self.line_type_combo = ttk.Combobox(self.line_settings_frame, textvariable=self.line_type_var, state="readonly")
+        self.line_type_combo['values'] = ("Solid", "Dashed", "Gradient")
+        self.line_type_combo.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+
+        # Background Settings Frame
+        self.bg_settings_frame = tk.LabelFrame(self.param_group_frame, text="Background Settings", padx=10, pady=10)
+        self.bg_settings_frame.grid(row=2, column=1, padx=5, pady=5, sticky="nsew")  # Aligned beside Line Settings Frame
+
+        # Black Background Height Percentage with Slider and Entry
+        self.bg_height_label = tk.Label(self.bg_settings_frame, text="Bg Height (%):")
+        self.bg_height_label.grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        self.bg_height_slider = tk.Scale(self.bg_settings_frame, from_=1, to=100, orient="horizontal",
+                                       command=lambda v: self.sync_slider_entry(v, self.bg_height_entry))
+        self.bg_height_slider.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        self.bg_height_entry = tk.Entry(self.bg_settings_frame, width=5)
+        self.bg_height_entry.grid(row=0, column=2, padx=5, pady=5, sticky="w")
+        self.bg_height_slider.set(15)
+        self.bg_height_entry.insert(0, "15")
+
+        # Black Background Transparency with Slider and Entry
+        self.bg_transparency_label = tk.Label(self.bg_settings_frame, text="Bg Transparency (%):")
+        self.bg_transparency_label.grid(row=1, column=0, padx=5, pady=5, sticky="e")
+        self.bg_transparency_slider = tk.Scale(self.bg_settings_frame, from_=0, to=100, orient="horizontal",
+                                             command=lambda v: self.sync_slider_entry(v, self.bg_transparency_entry))
+        self.bg_transparency_slider.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+        self.bg_transparency_entry = tk.Entry(self.bg_settings_frame, width=5)
+        self.bg_transparency_entry.grid(row=1, column=2, padx=5, pady=5, sticky="w")
+        self.bg_transparency_slider.set(50)
+        self.bg_transparency_entry.insert(0, "50")
+        # ---------------------- Updated Layout Ends Here ------------------------
+
+        # Enable Second Black Background
+        self.second_bg_var = tk.BooleanVar(value=False)
+        self.enable_second_bg_rb = tk.Checkbutton(self.param_group_frame, text="Enable Second Black Background", variable=self.second_bg_var, command=self.toggle_second_bg)
+        self.enable_second_bg_rb.grid(row=3, column=0, columnspan=2, padx=5, pady=5, sticky="w")  # Positioned below Line and Background Settings Frames
+
+        # Second Black Background Positioning
+        self.second_bg_position_frame = tk.LabelFrame(self.param_group_frame, text="Second Background Position", padx=10, pady=10)
+        self.second_bg_position_frame.grid(row=4, column=0, columnspan=2, padx=5, pady=5, sticky="we")  # Below Enable Second Bg Checkbox
+        self.second_bg_position_frame.grid_remove()  # Hide initially
+
+        tk.Label(self.second_bg_position_frame, text="X Position:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        self.second_bg_pos_x_entry = tk.Entry(self.second_bg_position_frame, width=5)
+        self.second_bg_pos_x_entry.grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        self.second_bg_pos_x_entry.insert(0, "0")  # Default X position
+
+        tk.Label(self.second_bg_position_frame, text="Y Position:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
+        self.second_bg_pos_y_entry = tk.Entry(self.second_bg_position_frame, width=5)
+        self.second_bg_pos_y_entry.grid(row=1, column=1, padx=5, pady=5, sticky="w")
+        self.second_bg_pos_y_entry.insert(0, "0")  # Default Y position
+
+        tk.Label(self.second_bg_position_frame, text="Height (%):").grid(row=2, column=0, padx=5, pady=5, sticky="e")
+        self.second_bg_height_entry = tk.Entry(self.second_bg_position_frame, width=5)
+        self.second_bg_height_entry.grid(row=2, column=1, padx=5, pady=5, sticky="w")
+        self.second_bg_height_entry.insert(0, "10")  # Default height percentage
+
+        tk.Label(self.second_bg_position_frame, text="Transparency (%):").grid(row=3, column=0, padx=5, pady=5, sticky="e")
+        self.second_bg_transparency_entry = tk.Entry(self.second_bg_position_frame, width=5)
+        self.second_bg_transparency_entry.grid(row=3, column=1, padx=5, pady=5, sticky="w")
+        self.second_bg_transparency_entry.insert(0, "50")  # Default transparency
 
         # Add Open Image Checkbox (near the start button)
         self.open_image_var = tk.BooleanVar(value=True)  # Default to True
