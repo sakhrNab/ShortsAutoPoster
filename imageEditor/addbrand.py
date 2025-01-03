@@ -61,13 +61,16 @@ def create_gradient(color_start, color_end, length):
 
 # ---------------------------- Image Processing ---------------------------
 
-def process_image(image_path, config, parameters, logger, preview=False, preview_size=(400, 400)):
+def process_image(image_path, config, parameters, logger, preview=False, max_preview_size=(800, 800)):
     try:
         # Load the image
         img = Image.open(image_path)
         original_size = img.size
         if preview:
-            img.thumbnail(preview_size, Image.Resampling.LANCZOS)
+            # Calculate scaling factor to maintain aspect ratio
+            ratio = min(max_preview_size[0] / img.width, max_preview_size[1] / img.height)
+            new_size = (int(img.width * ratio), int(img.height * ratio))
+            img = img.resize(new_size, Image.Resampling.LANCZOS)
         if img.mode != 'RGBA':
             img = img.convert('RGBA')
         draw = ImageDraw.Draw(img)
@@ -270,7 +273,7 @@ class ImageEditorGUI:
         self.config = config
         self.logger = logger
         master.title("Automated Image Editor")
-        master.geometry("1200x800")  # Increased size to accommodate preview
+        master.geometry("800x600")  # Reduced size since preview is separate
         master.resizable(True, True)  # Allow window to be resizable
 
         # Apply a modern theme
@@ -282,7 +285,7 @@ class ImageEditorGUI:
         else:
             style.theme_use('clam')  # Fallback theme
 
-        # Create a PanedWindow for horizontal split
+        # Create PanedWindow
         self.paned_window = ttk.Panedwindow(master, orient=tk.HORIZONTAL)
         self.paned_window.pack(fill=tk.BOTH, expand=True)
 
@@ -290,12 +293,17 @@ class ImageEditorGUI:
         self.controls_frame = ScrollableFrame(self.paned_window)
         self.paned_window.add(self.controls_frame, weight=3)
 
-        # Right pane: Live Preview
-        self.preview_frame = ttk.LabelFrame(self.paned_window, text="Live Preview", padding=10)
-        self.paned_window.add(self.preview_frame, weight=1)
-
-        self.preview_label = tk.Label(self.preview_frame)
+        # Initialize a separate preview window
+        self.preview_window = tk.Toplevel(master)
+        self.preview_window.title("Live Preview")
+        self.preview_window.geometry("400x400")  # Initial size
+        self.preview_window.resizable(True, True)
+        self.preview_label = tk.Label(self.preview_window)
         self.preview_label.pack(fill="both", expand=True)
+        self.preview_window.attributes('-topmost', True)
+
+        # Bind the main window close event to also close the preview window
+        master.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         # Single or Batch Processing
         self.mode = tk.StringVar(value="single")
@@ -746,7 +754,7 @@ class ImageEditorGUI:
                     second_bg_pos_y = int(self.second_bg_pos_y_entry.get())
                     second_bg_height_percentage = float(self.second_bg_height_entry.get())
                     second_bg_transparency = float(self.second_bg_transparency_entry.get())
-                    if not (0 < second_bg_height_percentage < 100 and 0 <= second_bg_transparency <= 100):
+                    if not (0 <= second_bg_transparency <= 100 and 0 < second_bg_height_percentage < 100):
                         raise ValueError
                 except ValueError:
                     self.logger.warning("Invalid Second Black Background parameters for preview.")
@@ -756,6 +764,14 @@ class ImageEditorGUI:
                 second_bg_pos_y = 0
                 second_bg_height_percentage = 10
                 second_bg_transparency = 50
+
+            try:
+                description_font_size = int(self.font_size_spinbox.get())
+                if not (10 <= description_font_size <= 100):
+                    raise ValueError
+            except ValueError:
+                self.logger.warning("Invalid Description Font Size for preview.")
+                return
 
             parameters = {
                 'icon_width_percentage': icon_width_percentage,
@@ -780,7 +796,7 @@ class ImageEditorGUI:
                 'second_bg_position_y': second_bg_pos_y,
                 'second_black_bg_height_percentage': second_bg_height_percentage,
                 'second_black_bg_transparency': second_bg_transparency,
-                'description_font_size': self.font_size_spinbox.get()
+                'description_font_size': description_font_size
             }
 
             # Generate preview image
@@ -796,6 +812,8 @@ class ImageEditorGUI:
     def display_preview(self, img_tk):
         self.preview_label.configure(image=img_tk)
         self.preview_label.image = img_tk  # Keep a reference to prevent garbage collection
+        # Optionally adjust the preview window size based on image
+        self.preview_window.geometry(f"{img_tk.width()}x{img_tk.height()}")
 
     def start_processing(self):
         path = self.path_entry.get().strip()
@@ -963,15 +981,9 @@ class ImageEditorGUI:
         entry_widget.insert(0, str(int(float(value))))
         self.update_preview()
 
-    # Add new method for entry to slider sync
-    def sync_entry_slider(self, event, entry_widget, slider_widget):
-        """Synchronize entry value with slider widget and trigger preview update"""
-        try:
-            value = int(float(entry_widget.get()))
-            slider_widget.set(value)
-            self.update_preview()
-        except ValueError:
-            pass
+    def on_closing(self):
+        self.preview_window.destroy()
+        self.master.destroy()
 
 # --------------------------- Main Functionality ---------------------------
 
