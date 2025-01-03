@@ -5,3 +5,4 @@ image_editor.log
 config.json
 output_images
 scriptenv
+__pycache__
