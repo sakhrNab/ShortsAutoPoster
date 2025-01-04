@@ -1,0 +1,58 @@
+# Top bar background settings
+TOP_BAR_BACKGROUND: "n"                        # Enable/disable top bar (y/n) - n
+TOP_BAR_BACKGROUND_HEIGHT_IN_PERCENTAGE: 0     # Height of top bar (0-100%) - 0
+TOP_BAR_BACKGROUND_TRANSPARENCY: 0             # Transparency of top bar (0-1) - 0
+
+# Top black background settings
+TOP_BLACK_BACKGROUND: "n"                      # Enable/disable top background (y/n) - n
+BLACK_BACKGROUND_TRANSPARENCY: 0               # Transparency of top background (0-1) - 0
+TOP_BLACK_BACKGROUND_HEIGHT_IN_PERCENTAGE: 0   # Height of top background (0-100%) - 0
+
+# Bottom black background settings
+BOTTOM_BLACK_BACKGROUND: "y"                   # Enable/disable bottom background (y/n) - y
+BOTTOM_BLACK_BACKGROUND_TRANSPARENCY: 0.7      # Transparency of bottom background (0-1) - 0.7
+BOTTOM_BLACK_BACKGROUND_HEIGHT_IN_PERCENTAGE: 15  # Height of bottom background (0-100%) - 15
+
+# Icon settings
+ICON_WIDTH_RANGE: 600                         # Width of icon in pixels (100-1000) - 600
+ICON_X_POSITION: "c"                          # Icon horizontal position (c=center, l=left, r=right, or 0-100%) - c
+ICON_Y_OFFSET_IN_PERCENTAGE: 90               # Icon vertical position (0-100%) - 90
+
+pos: "c"
+    icon_y_position: 88
+
+  # YouTube Long settings
+  youtube_long:
+    aspect_ratio: "3"          # Landscape format (16:9)
+    bottom_bg: "y"
+    bottom_bg_height: 12       # Smaller bottom area for landscape
+    icon_width: 400           # Smaller icon for landscape
+    icon_x_pos: "c"
+    icon_y_position: 85
+# Platform-specific defaults
+PLATFORM_DEFAULTS:
+  # Instagram settings
+  instagram:
+    aspect_ratio: "2"           # 1=square, 2=portrait(9:16), 3=landscape(16:9)
+    bottom_bg: "y"              # Enable bottom background
+    bottom_bg_height: 15        # Bottom background height (%)
+    icon_width: 600            # Icon width in pixels
+    icon_x_pos: "c"            # Icon horizontal position
+    icon_y_position: 90        # Icon vertical position (%)
+
+  # TikTok settings
+  tiktok:
+    aspect_ratio: "2"          # Portrait format (9:16)
+    bottom_bg: "y"
+    bottom_bg_height: 20       # Larger bottom area for TikTok
+    icon_width: 500
+    icon_x_pos: "c"
+    icon_y_position: 85
+
+  # YouTube Shorts settings
+  youtube_shorts:
+    aspect_ratio: "2"          # Portrait format (9:16)
+    bottom_bg: "y"
+    bottom_bg_height: 15
+    icon_width: 550
+    icon_x_

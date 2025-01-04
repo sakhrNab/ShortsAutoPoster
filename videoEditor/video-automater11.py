@@ -4,6 +4,7 @@ import signal
 import sys
 from multiprocessing import Pool
 import json
+import yaml  # Add this import at the top
 
 def init_worker():
     """
@@ -339,13 +340,13 @@ def get_validated_input(prompt_message, is_folder=False, is_file=False):
             return path
 
 def load_config():
-    """Load configuration from config.json"""
-    config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+    """Load configuration from config.yaml"""
+    config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
     try:
         with open(config_path, 'r') as f:
-            return json.load(f)
+            return yaml.safe_load(f)
     except FileNotFoundError:
-        print("[WARNING] config.json not found, using hardcoded defaults")
+        print("[WARNING] config.yaml not found, using hardcoded defaults")
         return None
 
 def get_platform_choice():
@@ -373,39 +374,77 @@ def use_default_settings():
         if choice in ['y', 'n']:
             return choice == 'y'
 
-def get_parameters_from_config(config):
+def get_parameters_from_config(config, platform_defaults=None):
     """Convert config values to parameter dictionaries"""
     if not config:
         return None, None, None, None
         
+    # Video position parameters
     video_position = None
-    if config["TOP_BAR_BACKGROUND"]:
+    if config["TOP_BAR_BACKGROUND"] == "y":
         video_position = {
             "bottom_height_percent": config["TOP_BAR_BACKGROUND_HEIGHT_IN_PERCENTAGE"],
             "opacity": config["TOP_BAR_BACKGROUND_TRANSPARENCY"]
         }
     
+    # Top background parameters
     top_bg = None
-    if config["TOP_BLACK_BACKGROUND"]:
+    if config["TOP_BLACK_BACKGROUND"] == "y":
         top_bg = {
             "height_percent": config["TOP_BLACK_BACKGROUND_HEIGHT_IN_PERCENTAGE"],
             "opacity": config["BLACK_BACKGROUND_TRANSPARENCY"]
         }
     
+    # Bottom background parameters
     bottom_bg = None
-    if config["BOTTOM_BLACK_BACKGROUND"]:
+    if config["BOTTOM_BLACK_BACKGROUND"] == "y":
         bottom_bg = {
             "height_percent": config["BOTTOM_BLACK_BACKGROUND_HEIGHT_IN_PERCENTAGE"],
             "opacity": config["BOTTOM_BLACK_BACKGROUND_TRANSPARENCY"]
         }
     
+    # Icon parameters
     icon = {
         "width": config["ICON_WIDTH_RANGE"],
-        "x_position": str(config["ICON_X_OFFSET_IN_PERCENTAGE"]),
+        "x_position": config["ICON_X_POSITION"],
         "y_position": config["ICON_Y_OFFSET_IN_PERCENTAGE"]
     }
     
+    # Override with platform-specific defaults if available
+    if platform_defaults:
+        if platform_defaults.get("bottom_bg") == "y":
+            bottom_bg = {
+                "height_percent": platform_defaults["bottom_bg_height"],
+                "opacity": config["BOTTOM_BLACK_BACKGROUND_TRANSPARENCY"]
+            }
+        icon.update({
+            "width": platform_defaults["icon_width"],
+            "x_position": platform_defaults["icon_x_pos"],
+            "y_position": platform_defaults["icon_y_position"]
+        })
+    
     return video_position, top_bg, bottom_bg, icon
+
+def get_platform_defaults(config, platform):
+    """Get default settings for specific platform"""
+    if not config or "PLATFORM_DEFAULTS" not in config:
+        return None
+    return config["PLATFORM_DEFAULTS"].get(platform)
+
+def get_ratio_choice_with_platform(platform_defaults=None):
+    """Get ratio choice with platform-specific default"""
+    if platform_defaults:
+        ratio_map = {
+            "square": "1",
+            "portrait": "2",
+            "landscape": "3"
+        }
+        default_ratio = ratio_map.get(platform_defaults.get("aspect_ratio"))
+        if default_ratio:
+            print(f"\nUsing platform default aspect ratio")
+            return {'1': (1080, 1080), '2': (1080, 1920), '3': (1920, 1080)}[default_ratio]
+    
+    return get_ratio_choice()
 
 def main():
     print("=== Video Processing Script ===\n")
@@ -413,6 +452,7 @@ def main():
     # Load config and get platform choice
     config = load_config()
     platform = get_platform_choice()
+    platform_defaults = get_platform_defaults(config, platform)
     
     # Determine if using defaults
     use_defaults = use_default_settings() if config else False
@@ -439,10 +479,10 @@ def main():
 
     # Get parameters either from config or user input
     if use_defaults:
-        video_position_params, top_bg_params, black_bg_params, icon_params = get_parameters_from_config(config)
-        target_dimensions = get_ratio_choice()  # Still need aspect ratio choice
+        video_position_params, top_bg_params, black_bg_params, icon_params = get_parameters_from_config(config, platform_defaults)
+        target_dimensions = get_ratio_choice_with_platform(platform_defaults)
     else:
-        target_dimensions = get_ratio_choice()
+        target_dimensions = get_ratio_choice_with_platform(None)
         video_position_params = get_video_positioning_preferences()
         top_bg_params = get_top_background_preferences()
         black_bg_params = get_black_background_preferences()
