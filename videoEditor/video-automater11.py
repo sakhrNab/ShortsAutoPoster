@@ -34,15 +34,41 @@ def calculate_aspect_ratio(input_path):
     width, height = map(int, result.stdout.strip().split('x'))
     return width, height
 
+def get_custom_ratio():
+    """Get custom aspect ratio dimensions from user."""
+    print("\nEnter custom dimensions:")
+    while True:
+        try:
+            width = int(input("Width in pixels (e.g., 1080): ").strip())
+            height = int(input("Height in pixels (e.g., 1920): ").strip())
+            
+            if width <= 0 or height <= 0:
+                print("Dimensions must be positive numbers")
+                continue
+                
+            if width > 3840 or height > 3840:
+                print("Warning: Large dimensions might impact performance")
+                confirm = input("Continue? (y/n): ").lower()
+                if confirm != 'y':
+                    continue
+            
+            return (width, height)
+        except ValueError:
+            print("Please enter valid numbers")
+
 def get_ratio_choice():
     """Get user's preferred aspect ratio choice."""
     print("\nSelect output aspect ratio:")
     print("1. Square (1:1)")
     print("2. Portrait (9:16)")
     print("3. Landscape (16:9)")
+    print("4. Custom ratio")
+    
     while True:
-        choice = input("Enter your choice (1-3): ").strip()
-        if choice in ['1', '2', '3']:
+        choice = input("Enter your choice (1-4): ").strip()
+        if choice == '4':
+            return get_custom_ratio()
+        elif choice in ['1', '2', '3']:
             return {'1': (1080, 1080), '2': (1080, 1920), '3': (1920, 1080)}[choice]
 
 def get_black_background_preferences():
@@ -433,17 +459,37 @@ def get_platform_defaults(config, platform):
 
 def get_ratio_choice_with_platform(platform_defaults=None):
     """Get ratio choice with platform-specific default"""
-    if platform_defaults:
-        ratio_map = {
-            "square": "1",
-            "portrait": "2",
-            "landscape": "3"
+    if platform_defaults and 'aspect_ratio' in platform_defaults:
+        # Map aspect ratio numbers to descriptions
+        ratio_descriptions = {
+            "1": "Square (1:1)",
+            "2": "Portrait (9:16)",
+            "3": "Landscape (16:9)",
+            "custom": "Custom"
         }
-        default_ratio = ratio_map.get(platform_defaults.get("aspect_ratio"))
-        if default_ratio:
-            print(f"\nUsing platform default aspect ratio")
-            return {'1': (1080, 1080), '2': (1080, 1920), '3': (1920, 1080)}[default_ratio]
-    
+        default_ratio = platform_defaults['aspect_ratio']
+        
+        # Show only the current platform's default ratio
+        ratio_desc = ratio_descriptions.get(default_ratio, "Custom")
+        print(f"\nPlatform default aspect ratio: {ratio_desc}")
+        
+        while True:
+            override = input("Do you want to override the default aspect ratio? (y/n): ").lower()
+            if override in ['y', 'n']:
+                if override == 'y':
+                    print("\nChoose new aspect ratio:")
+                    return get_ratio_choice()  # Return user's choice immediately
+                # Use platform default
+                if default_ratio == "custom":
+                    print("Using custom ratio from platform defaults")
+                    return (
+                        platform_defaults.get('width', 1080),
+                        platform_defaults.get('height', 1920)
+                    )
+                print(f"Using platform default: {ratio_desc}")
+                return {'1': (1080, 1080), '2': (1080, 1920), '3': (1920, 1080)}[default_ratio]
+                
+    # If no platform defaults available, show regular choice menu
     return get_ratio_choice()
 
 def main():
@@ -480,8 +526,10 @@ def main():
     # Get parameters either from config or user input
     if use_defaults:
         video_position_params, top_bg_params, black_bg_params, icon_params = get_parameters_from_config(config, platform_defaults)
+        # Always call get_ratio_choice_with_platform to allow override option
         target_dimensions = get_ratio_choice_with_platform(platform_defaults)
     else:
+        # If not using defaults, don't pass platform_defaults to get regular choice
         target_dimensions = get_ratio_choice_with_platform(None)
         video_position_params = get_video_positioning_preferences()
         top_bg_params = get_top_background_preferences()
