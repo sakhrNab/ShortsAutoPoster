@@ -3,6 +3,7 @@ import subprocess
 import signal
 import sys
 from multiprocessing import Pool
+import json
 
 def init_worker():
     """
@@ -337,23 +338,98 @@ def get_validated_input(prompt_message, is_folder=False, is_file=False):
             # If no validation is required
             return path
 
+def load_config():
+    """Load configuration from config.json"""
+    config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+    try:
+        with open(config_path, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print("[WARNING] config.json not found, using hardcoded defaults")
+        return None
+
+def get_platform_choice():
+    """Get user's choice of platform"""
+    platforms = {
+        '1': ('YouTube Shorts', 'youtube_shorts'),
+        '2': ('Instagram', 'instagram'),
+        '3': ('TikTok', 'tiktok'),
+        '4': ('YouTube Long', 'youtube_long')
+    }
+    
+    print("\nSelect target platform:")
+    for key, (name, _) in platforms.items():
+        print(f"{key}. {name}")
+    
+    while True:
+        choice = input("Enter your choice (1-4): ").strip()
+        if choice in platforms:
+            return platforms[choice][1]
+
+def use_default_settings():
+    """Ask user if they want to use default settings from config"""
+    while True:
+        choice = input("\nUse default settings from config.json? (y/n): ").lower()
+        if choice in ['y', 'n']:
+            return choice == 'y'
+
+def get_parameters_from_config(config):
+    """Convert config values to parameter dictionaries"""
+    if not config:
+        return None, None, None, None
+        
+    video_position = None
+    if config["TOP_BAR_BACKGROUND"]:
+        video_position = {
+            "bottom_height_percent": config["TOP_BAR_BACKGROUND_HEIGHT_IN_PERCENTAGE"],
+            "opacity": config["TOP_BAR_BACKGROUND_TRANSPARENCY"]
+        }
+    
+    top_bg = None
+    if config["TOP_BLACK_BACKGROUND"]:
+        top_bg = {
+            "height_percent": config["TOP_BLACK_BACKGROUND_HEIGHT_IN_PERCENTAGE"],
+            "opacity": config["BLACK_BACKGROUND_TRANSPARENCY"]
+        }
+    
+    bottom_bg = None
+    if config["BOTTOM_BLACK_BACKGROUND"]:
+        bottom_bg = {
+            "height_percent": config["BOTTOM_BLACK_BACKGROUND_HEIGHT_IN_PERCENTAGE"],
+            "opacity": config["BOTTOM_BLACK_BACKGROUND_TRANSPARENCY"]
+        }
+    
+    icon = {
+        "width": config["ICON_WIDTH_RANGE"],
+        "x_position": str(config["ICON_X_OFFSET_IN_PERCENTAGE"]),
+        "y_position": config["ICON_Y_OFFSET_IN_PERCENTAGE"]
+    }
+    
+    return video_position, top_bg, bottom_bg, icon
+
 def main():
     print("=== Video Processing Script ===\n")
-
-    # Prompt user for source folder path
+    
+    # Load config and get platform choice
+    config = load_config()
+    platform = get_platform_choice()
+    
+    # Determine if using defaults
+    use_defaults = use_default_settings() if config else False
+    
+    # Get source folder
     source_folder = get_validated_input(
         prompt_message="Enter the path to the source videos folder: ",
         is_folder=True
     )
 
-    # Define the output folder relative to the script's directory
+    # Set up output folder based on platform
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    output_folder = os.path.join(script_dir, "ai.waverider")
-
-    # Define the brand icon path (modify this path if needed)
+    base_output = os.path.join(script_dir, "ai.waverider")
+    output_folder = os.path.join(base_output, platform)
+    
+    # Define brand icon path
     brand_icon = "assets/fullicon.png"
-
-    # Check if the brand icon exists
     if not os.path.isfile(brand_icon):
         print(f"[ERROR] Brand icon not found at '{brand_icon}'. Please verify the path.")
         sys.exit(1)
@@ -361,20 +437,24 @@ def main():
     # Ensure output directory exists
     os.makedirs(output_folder, exist_ok=True)
 
-    # Get all user preferences
-    target_dimensions = get_ratio_choice()
-    video_position_params = get_video_positioning_preferences()
-    top_bg_params = get_top_background_preferences()
-    black_bg_params = get_black_background_preferences()
-    icon_params = get_icon_preferences()
+    # Get parameters either from config or user input
+    if use_defaults:
+        video_position_params, top_bg_params, black_bg_params, icon_params = get_parameters_from_config(config)
+        target_dimensions = get_ratio_choice()  # Still need aspect ratio choice
+    else:
+        target_dimensions = get_ratio_choice()
+        video_position_params = get_video_positioning_preferences()
+        top_bg_params = get_top_background_preferences()
+        black_bg_params = get_black_background_preferences()
+        icon_params = get_icon_preferences()
 
-    # Collect all video files to process
+    # Collect video files
     video_paths = []
     for video_file in os.listdir(source_folder):
         if video_file.lower().endswith((".mp4", ".mov")):
             input_path = os.path.join(source_folder, video_file)
             output_path = os.path.join(output_folder, f"processed_{video_file}")
-            video_paths.append((input_path, brand_icon, output_path, target_dimensions, 
+            video_paths.append((input_path, brand_icon, output_path, target_dimensions,
                               black_bg_params, video_position_params, top_bg_params, icon_params))
 
     if not video_paths:
