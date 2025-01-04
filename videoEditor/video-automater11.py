@@ -32,35 +32,81 @@ def calculate_aspect_ratio(input_path):
     width, height = map(int, result.stdout.strip().split('x'))
     return width, height
 
-def generate_filter_complex(input_path, brand_icon):
-    """
-    Generate the filter_complex string based on the input video aspect ratio.
+def get_ratio_choice():
+    """Get user's preferred aspect ratio choice."""
+    print("\nSelect output aspect ratio:")
+    print("1. Square (1:1)")
+    print("2. Portrait (9:16)")
+    print("3. Landscape (16:9)")
+    while True:
+        choice = input("Enter your choice (1-3): ").strip()
+        if choice in ['1', '2', '3']:
+            return {'1': (1080, 1080), '2': (1080, 1920), '3': (1920, 1080)}[choice]
 
-    Parameters:
-        input_path (str): Path to the input video file.
-        brand_icon (str): Path to the brand icon image.
+def get_black_background_preferences():
+    """Get user preferences for bottom black background."""
+    while True:
+        add_bg = input("\nAdd black background at bottom? (y/n): ").lower()
+        if add_bg not in ['y', 'n']:
+            continue
+        
+        if add_bg == 'n':
+            return None
+        
+        height = input("Enter height percentage (1-50): ").strip()
+        try:
+            height = float(height)
+            if not 1 <= height <= 50:
+                print("Height must be between 1 and 50")
+                continue
+        except ValueError:
+            print("Please enter a valid number")
+            continue
+            
+        opacity = input("Enter opacity (0-1, e.g., 0.7): ").strip()
+        try:
+            opacity = float(opacity)
+            if not 0 <= opacity <= 1:
+                print("Opacity must be between 0 and 1")
+                continue
+        except ValueError:
+            print("Please enter a valid number")
+            continue
+            
+        return {"height_percent": height, "opacity": opacity}
 
-    Returns:
-        str: The filter_complex string.
-    """
-    width, height = calculate_aspect_ratio(input_path)
-    aspect_ratio = width / height
-
-    if (aspect_ratio > 1):
-        # Landscape
-        scale_filter = f"scale=1080:-1:force_original_aspect_ratio=decrease"
-    else:
-        # Portrait or square
-        scale_filter = f"scale=-1:1080:force_original_aspect_ratio=decrease"
-
+def generate_filter_complex(input_path, brand_icon, target_dimensions, black_bg_params=None):
+    """Generate the filter_complex string with properly chained filters."""
+    target_width, target_height = target_dimensions
+    
+    # Start building the filter chain
     filter_complex = (
-        f"[0:v]{scale_filter},"
-        "pad=1080:1080:(ow-iw)/2:(oh-ih)/2:black,"
-        "drawbox=x=0:y=0:w=1080:h=108:color=black@0.7:t=0,"
-        "format=rgba[bg];"
-        "[1:v]scale=500:-1[icon];"
+        # Initial scale and pad
+        f"[0:v]scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,"
+        f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2:black[scaled];"
+        
+        # Add the top black background
+        f"[scaled]drawbox=x=0:y=0:w={target_width}:h={int(target_height*0.1)}:"
+        f"color=black@0.7:t=fill[top]"
+    )
+
+    # Add bottom black background if requested
+    if black_bg_params:
+        height_pixels = int(target_height * (black_bg_params["height_percent"] / 100))
+        y_position = target_height - height_pixels
+        filter_complex += (
+            f";[top]drawbox=x=0:y={y_position}:w={target_width}:h={height_pixels}:"
+            f"color=black@{black_bg_params['opacity']}:t=fill[bg]"
+        )
+    else:
+        filter_complex += ";[top]copy[bg]"
+
+    # Add the brand icon overlay
+    filter_complex += (
+        ";[1:v]scale=500:-1[icon];"
         "[bg][icon]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/8"
     )
+    
     return filter_complex
 
 def process_video(video_args):
@@ -73,8 +119,8 @@ def process_video(video_args):
     Returns:
         str: Path to the processed video file.
     """
-    input_path, brand_icon, output_path = video_args
-    filter_complex = generate_filter_complex(input_path, brand_icon)
+    input_path, brand_icon, output_path, target_dimensions, black_bg_params = video_args
+    filter_complex = generate_filter_complex(input_path, brand_icon, target_dimensions, black_bg_params)
 
     command = [
         "ffmpeg",                # Use "ffmpeg" directly (ensure it's in PATH)
@@ -155,13 +201,17 @@ def main():
     # Ensure output directory exists
     os.makedirs(output_folder, exist_ok=True)
 
+    # Get user's preferred aspect ratio and black background preferences
+    target_dimensions = get_ratio_choice()
+    black_bg_params = get_black_background_preferences()
+
     # Collect all video files to process
     video_paths = []
     for video_file in os.listdir(source_folder):
         if video_file.lower().endswith((".mp4", ".mov")):
             input_path = os.path.join(source_folder, video_file)
             output_path = os.path.join(output_folder, f"processed_{video_file}")
-            video_paths.append((input_path, brand_icon, output_path))
+            video_paths.append((input_path, brand_icon, output_path, target_dimensions, black_bg_params))
 
     if not video_paths:
         print("[INFO] No videos found in the source folder to process.")
