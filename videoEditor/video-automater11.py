@@ -75,36 +75,191 @@ def get_black_background_preferences():
             
         return {"height_percent": height, "opacity": opacity}
 
-def generate_filter_complex(input_path, brand_icon, target_dimensions, black_bg_params=None):
+def get_video_positioning_preferences():
+    """Get user preferences for video positioning within the frame."""
+    while True:
+        position = input("\nDo you want to position the video with black bars? (y/n): ").lower()
+        if position not in ['y', 'n']:
+            continue
+            
+        if position == 'n':
+            return None
+            
+        bottom_height = input("Enter bottom black bar height percentage (1-50): ").strip()
+        try:
+            bottom_height = float(bottom_height)
+            if not 1 <= bottom_height <= 50:
+                print("Height must be between 1 and 50")
+                continue
+        except ValueError:
+            print("Please enter a valid number")
+            continue
+            
+        video_opacity = input("Enter opacity for black bars (0-1, e.g., 0.7): ").strip()
+        try:
+            video_opacity = float(video_opacity)
+            if not 0 <= video_opacity <= 1:
+                print("Opacity must be between 0 and 1")
+                continue
+        except ValueError:
+            print("Please enter a valid number")
+            continue
+            
+        return {
+            "bottom_height_percent": bottom_height,
+            "opacity": video_opacity
+        }
+
+def get_top_background_preferences():
+    """Get user preferences for top black background."""
+    while True:
+        add_bg = input("\nAdd black background at top? (y/n): ").lower()
+        if add_bg not in ['y', 'n']:
+            continue
+        
+        if add_bg == 'n':
+            return None
+        
+        height = input("Enter top bar height percentage (1-30): ").strip()
+        try:
+            height = float(height)
+            if not 1 <= height <= 30:
+                print("Height must be between 1 and 30")
+                continue
+        except ValueError:
+            print("Please enter a valid number")
+            continue
+            
+        opacity = input("Enter opacity (0-1, e.g., 0.7): ").strip()
+        try:
+            opacity = float(opacity)
+            if not 0 <= opacity <= 1:
+                print("Opacity must be between 0 and 1")
+                continue
+        except ValueError:
+            print("Please enter a valid number")
+            continue
+            
+        return {"height_percent": height, "opacity": opacity}
+
+def get_icon_preferences():
+    """Get user preferences for icon positioning and size."""
+    print("\nIcon positioning and size (press Enter for defaults):")
+    
+    # Get width
+    while True:
+        width = input("Enter icon width (default 500, range 100-1000): ").strip()
+        if not width:
+            width = 500
+            break
+        try:
+            width = int(width)
+            if 100 <= width <= 1000:
+                break
+            print("Width must be between 100 and 1000")
+        except ValueError:
+            print("Please enter a valid number")
+    
+    # Get X position
+    while True:
+        x_pos = input("Enter X position (c=center, l=left, r=right, or 0-100%): ").strip()
+        if not x_pos:
+            x_pos = 'c'
+        if x_pos in ['c', 'l', 'r'] or (x_pos.replace('.', '').isdigit() and 0 <= float(x_pos) <= 100):
+            break
+        print("Invalid position. Use 'c', 'l', 'r', or 0-100")
+    
+    # Get Y position
+    while True:
+        y_pos = input("Enter Y position (0-100%, default 12.5%): ").strip()
+        if not y_pos:
+            y_pos = "12.5"
+            break
+        try:
+            y_pos = float(y_pos)
+            if 0 <= y_pos <= 100:
+                break
+            print("Y position must be between 0 and 100")
+        except ValueError:
+            print("Please enter a valid number")
+    
+    return {
+        "width": width,
+        "x_position": x_pos,
+        "y_position": float(y_pos)
+    }
+
+def generate_filter_complex(input_path, brand_icon, target_dimensions, black_bg_params=None, 
+                          video_position_params=None, top_bg_params=None, icon_params=None):
     """Generate the filter_complex string with properly chained filters."""
     target_width, target_height = target_dimensions
+    current_stage = "scaled"
     
-    # Start building the filter chain
-    filter_complex = (
-        # Initial scale and pad
-        f"[0:v]scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,"
-        f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2:black[scaled];"
+    # Initial scaling and positioning
+    if video_position_params:
+        # Calculate video and black bar heights
+        bottom_height = int(target_height * (video_position_params["bottom_height_percent"] / 100))
+        video_height = target_height - bottom_height
+        opacity = video_position_params["opacity"]
         
-        # Add the top black background
-        f"[scaled]drawbox=x=0:y=0:w={target_width}:h={int(target_height*0.1)}:"
-        f"color=black@0.7:t=fill[top]"
-    )
+        filter_complex = (
+            # Scale video to fit within the allocated space
+            f"[0:v]scale={target_width}:{video_height}:force_original_aspect_ratio=decrease,"
+            f"pad={target_width}:{target_height}:(ow-iw)/2:0:black[scaled];"
+            
+            # Add black background at the bottom
+            f"[scaled]drawbox=x=0:y={video_height}:w={target_width}:h={bottom_height}:"
+            f"color=black@{opacity}:t=fill[withbg]"
+        )
+        
+        current_stage = "withbg"
+    else:
+        filter_complex = (
+            f"[0:v]scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,"
+            f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2:black[{current_stage}]"
+        )
+
+    # Add top black background if requested
+    if top_bg_params:
+        height_pixels = int(target_height * (top_bg_params["height_percent"] / 100))
+        filter_complex += (
+            f";[{current_stage}]drawbox=x=0:y=0:w={target_width}:h={height_pixels}:"
+            f"color=black@{top_bg_params['opacity']}:t=fill[top]"
+        )
+        current_stage = "top"
 
     # Add bottom black background if requested
     if black_bg_params:
         height_pixels = int(target_height * (black_bg_params["height_percent"] / 100))
         y_position = target_height - height_pixels
         filter_complex += (
-            f";[top]drawbox=x=0:y={y_position}:w={target_width}:h={height_pixels}:"
+            f";[{current_stage}]drawbox=x=0:y={y_position}:w={target_width}:h={height_pixels}:"
             f"color=black@{black_bg_params['opacity']}:t=fill[bg]"
         )
+        current_stage = "bg"
+
+    # Process icon positioning
+    icon_params = icon_params or {"width": 500, "x_position": "c", "y_position": 12.5}
+    icon_width = icon_params["width"]
+    
+    # Calculate X position
+    x_pos = icon_params["x_position"]
+    if x_pos == "c":
+        x_formula = "(main_w-overlay_w)/2"
+    elif x_pos == "l":
+        x_formula = "10"
+    elif x_pos == "r":
+        x_formula = "main_w-overlay_w-10"
     else:
-        filter_complex += ";[top]copy[bg]"
+        x_formula = f"main_w*{float(x_pos)/100}"
+    
+    # Calculate Y position
+    y_formula = f"main_h*{icon_params['y_position']/100}"
 
     # Add the brand icon overlay
     filter_complex += (
-        ";[1:v]scale=500:-1[icon];"
-        "[bg][icon]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/8"
+        f";[1:v]scale={icon_width}:-1[icon];"
+        f"[{current_stage}][icon]overlay={x_formula}:{y_formula}"
     )
     
     return filter_complex
@@ -119,8 +274,13 @@ def process_video(video_args):
     Returns:
         str: Path to the processed video file.
     """
-    input_path, brand_icon, output_path, target_dimensions, black_bg_params = video_args
-    filter_complex = generate_filter_complex(input_path, brand_icon, target_dimensions, black_bg_params)
+    input_path, brand_icon, output_path, target_dimensions, black_bg_params, \
+    video_position_params, top_bg_params, icon_params = video_args
+    
+    filter_complex = generate_filter_complex(
+        input_path, brand_icon, target_dimensions, black_bg_params,
+        video_position_params, top_bg_params, icon_params
+    )
 
     command = [
         "ffmpeg",                # Use "ffmpeg" directly (ensure it's in PATH)
@@ -201,9 +361,12 @@ def main():
     # Ensure output directory exists
     os.makedirs(output_folder, exist_ok=True)
 
-    # Get user's preferred aspect ratio and black background preferences
+    # Get all user preferences
     target_dimensions = get_ratio_choice()
+    video_position_params = get_video_positioning_preferences()
+    top_bg_params = get_top_background_preferences()
     black_bg_params = get_black_background_preferences()
+    icon_params = get_icon_preferences()
 
     # Collect all video files to process
     video_paths = []
@@ -211,7 +374,8 @@ def main():
         if video_file.lower().endswith((".mp4", ".mov")):
             input_path = os.path.join(source_folder, video_file)
             output_path = os.path.join(output_folder, f"processed_{video_file}")
-            video_paths.append((input_path, brand_icon, output_path, target_dimensions, black_bg_params))
+            video_paths.append((input_path, brand_icon, output_path, target_dimensions, 
+                              black_bg_params, video_position_params, top_bg_params, icon_params))
 
     if not video_paths:
         print("[INFO] No videos found in the source folder to process.")
