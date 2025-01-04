@@ -39,8 +39,8 @@ def process_video(video_args):
 def main():
     # Define paths
     source_folder = "C:/Users/sakhr/OneDrive/Goals/AI Wave Rider/scripts/downloads/youtube"
-    output_folder = "C:/Users/sakhr/OneDrive/Documents/Wondershare/Wondershare Filmora/AIWaverider"
-    brand_icon    = "C:/Users/sakhr/OneDrive/Goals/AI Wave Rider/fullicon.png"  # Path to brand icon
+    output_folder = "videos/output"
+    brand_icon    = "assets/fullicon.png"  # Path to brand icon
 
     # Ensure output directory exists
     os.makedirs(output_folder, exist_ok=True)

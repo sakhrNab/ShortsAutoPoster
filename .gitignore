@@ -6,3 +6,8 @@ config.json
 output_images
 scriptenv
 __pycache__
+assets
+videos
+songs
+ai.waverider
+preview.png
