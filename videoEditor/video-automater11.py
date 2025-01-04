@@ -5,6 +5,7 @@ import sys
 from multiprocessing import Pool
 import json
 import yaml  # Add this import at the top
+from tqdm import tqdm  # Import tqdm for progress bar
 
 def init_worker():
     """
@@ -396,7 +397,7 @@ def get_platform_choice():
 def use_default_settings():
     """Ask user if they want to use default settings from config"""
     while True:
-        choice = input("\nUse default settings from config.json? (y/n): ").lower()
+        choice = input("\nUse default settings from config.yaml? (y/n): ").lower()
         if choice in ['y', 'n']:
             return choice == 'y'
 
@@ -407,46 +408,46 @@ def get_parameters_from_config(config, platform_defaults=None):
         
     # Video position parameters
     video_position = None
-    if config["TOP_BAR_BACKGROUND"] == "y":
+    if config.get("TOP_BAR_BACKGROUND", "n").lower() == "y":
         video_position = {
-            "bottom_height_percent": config["TOP_BAR_BACKGROUND_HEIGHT_IN_PERCENTAGE"],
-            "opacity": config["TOP_BAR_BACKGROUND_TRANSPARENCY"]
+            "bottom_height_percent": config.get("TOP_BAR_BACKGROUND_HEIGHT_IN_PERCENTAGE", 10),
+            "opacity": config.get("TOP_BAR_BACKGROUND_TRANSPARENCY", 0.7)
         }
     
     # Top background parameters
     top_bg = None
-    if config["TOP_BLACK_BACKGROUND"] == "y":
+    if config.get("TOP_BLACK_BACKGROUND", "n").lower() == "y":
         top_bg = {
-            "height_percent": config["TOP_BLACK_BACKGROUND_HEIGHT_IN_PERCENTAGE"],
-            "opacity": config["BLACK_BACKGROUND_TRANSPARENCY"]
+            "height_percent": config.get("TOP_BLACK_BACKGROUND_HEIGHT_IN_PERCENTAGE", 10),
+            "opacity": config.get("BLACK_BACKGROUND_TRANSPARENCY", 0.7)
         }
     
     # Bottom background parameters
     bottom_bg = None
-    if config["BOTTOM_BLACK_BACKGROUND"] == "y":
+    if config.get("BOTTOM_BLACK_BACKGROUND", "n").lower() == "y":
         bottom_bg = {
-            "height_percent": config["BOTTOM_BLACK_BACKGROUND_HEIGHT_IN_PERCENTAGE"],
-            "opacity": config["BOTTOM_BLACK_BACKGROUND_TRANSPARENCY"]
+            "height_percent": config.get("BOTTOM_BLACK_BACKGROUND_HEIGHT_IN_PERCENTAGE", 10),
+            "opacity": config.get("BOTTOM_BLACK_BACKGROUND_TRANSPARENCY", 0.7)
         }
     
     # Icon parameters
     icon = {
-        "width": config["ICON_WIDTH_RANGE"],
-        "x_position": config["ICON_X_POSITION"],
-        "y_position": config["ICON_Y_OFFSET_IN_PERCENTAGE"]
+        "width": config.get("ICON_WIDTH_RANGE", 500),
+        "x_position": config.get("ICON_X_POSITION", "c"),
+        "y_position": config.get("ICON_Y_OFFSET_IN_PERCENTAGE", 12.5)
     }
     
     # Override with platform-specific defaults if available
     if platform_defaults:
         if platform_defaults.get("bottom_bg") == "y":
             bottom_bg = {
-                "height_percent": platform_defaults["bottom_bg_height"],
-                "opacity": config["BOTTOM_BLACK_BACKGROUND_TRANSPARENCY"]
+                "height_percent": platform_defaults.get("bottom_bg_height", 10),
+                "opacity": config.get("BOTTOM_BLACK_BACKGROUND_TRANSPARENCY", 0.7)
             }
         icon.update({
-            "width": platform_defaults["icon_width"],
-            "x_position": platform_defaults["icon_x_pos"],
-            "y_position": platform_defaults["icon_y_position"]
+            "width": platform_defaults.get("icon_width", icon["width"]),
+            "x_position": platform_defaults.get("icon_x_pos", icon["x_position"]),
+            "y_position": platform_defaults.get("icon_y_position", icon["y_position"])
         })
     
     return video_position, top_bg, bottom_bg, icon
@@ -555,9 +556,12 @@ def main():
     pool = Pool(processes=4, initializer=init_worker)  # Adjust 'processes' based on CPU cores
 
     try:
-        # Use imap_unordered for better responsiveness to interrupts
-        for result in pool.imap_unordered(process_video, video_paths):
-            print(f"Processed: {result}")
+        # Initialize tqdm progress bar
+        with tqdm(total=len(video_paths), desc="Processing Videos", unit="video") as pbar:
+            # Use imap_unordered for better responsiveness to interrupts
+            for result in pool.imap_unordered(process_video, video_paths):
+                print(f"Processed: {result}")
+                pbar.update(1)
         print("\n[INFO] Batch processing completed!")
     except KeyboardInterrupt:
         print("\n[INFO] Caught Ctrl+C! Terminating all processes...")

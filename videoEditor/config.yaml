@@ -35,7 +35,7 @@ PLATFORM_DEFAULTS:
   instagram:
     aspect_ratio: "2"           # Video format (2=9:16 portrait)
     bottom_bg: "y"              # Enable bottom background
-    bottom_bg_height: 15        # Bottom background takes 15% of height
+    bottom_bg_height: 10        # Bottom background takes 15% of height
     icon_width: 600            # Brand icon width in pixels
     icon_x_pos: "c"            # Center icon horizontally
     icon_y_position: 90        # Place icon 90% down from top
