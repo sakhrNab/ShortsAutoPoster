@@ -20,22 +20,24 @@ class CustomSettingsDialog:
         self.dialog.geometry("500x600")
         self.dialog.transient(parent)
         
-        # Initialize variables
+        # Initialize variables with proper default values
         self.video_position = tk.BooleanVar(value=False)
-        self.video_position_height = tk.StringVar(value="10")
-        self.video_position_opacity = tk.StringVar(value="0.7")
+        self.video_position_height = tk.StringVar(value="20")  # Changed default to 20%
+        self.video_position_opacity = tk.StringVar(value="0.5")  # Changed to 0.5
+        self.video_position_type = tk.StringVar(value="center")  # center, top, bottom
+        self.video_scale = tk.StringVar(value="100")  # video scale percentage
         
         self.top_bg = tk.BooleanVar(value=False)
-        self.top_bg_height = tk.StringVar(value="10")
-        self.top_bg_opacity = tk.StringVar(value="0.7")
+        self.top_bg_height = tk.StringVar(value="15")  # Changed default to 15%
+        self.top_bg_opacity = tk.StringVar(value="0.5")  # Changed to 0.5
         
         self.bottom_bg = tk.BooleanVar(value=False)
-        self.bottom_bg_height = tk.StringVar(value="10")
-        self.bottom_bg_opacity = tk.StringVar(value="0.7")
+        self.bottom_bg_height = tk.StringVar(value="15")  # Changed default to 15%
+        self.bottom_bg_opacity = tk.StringVar(value="0.5")  # Changed to 0.5
         
-        self.icon_width = tk.StringVar(value="500")
+        self.icon_width = tk.StringVar(value="400")  # Changed default to 400
         self.icon_x_pos = tk.StringVar(value="c")
-        self.icon_y_pos = tk.StringVar(value="12.5")
+        self.icon_y_pos = tk.StringVar(value="90")  # Changed to 90% (near bottom)
         
         self.create_widgets()
         self.result = None
@@ -45,41 +47,58 @@ class CustomSettingsDialog:
         notebook = ttk.Notebook(self.dialog)
         notebook.pack(expand=True, fill='both', padx=5, pady=5)
         
-        # Video Position Frame
+        # Video Position Frame with updated controls
         vp_frame = ttk.Frame(notebook, padding="10")
         notebook.add(vp_frame, text='Video Position')
-        ttk.Checkbutton(vp_frame, text="Enable Video Position", variable=self.video_position).pack()
-        ttk.Label(vp_frame, text="Height %:").pack()
+        
+        # Video positioning options
+        ttk.Label(vp_frame, text="Video Position:").pack()
+        ttk.Radiobutton(vp_frame, text="Center", value="center", 
+                       variable=self.video_position_type).pack()
+        ttk.Radiobutton(vp_frame, text="Top", value="top", 
+                       variable=self.video_position_type).pack()
+        ttk.Radiobutton(vp_frame, text="Bottom", value="bottom", 
+                       variable=self.video_position_type).pack()
+        
+        ttk.Label(vp_frame, text="Video Scale (50-100%):").pack()
+        ttk.Entry(vp_frame, textvariable=self.video_scale).pack()
+        
+        # Black background options
+        ttk.Separator(vp_frame, orient='horizontal').pack(fill='x', pady=10)
+        ttk.Label(vp_frame, text="Black Background:").pack()
+        ttk.Checkbutton(vp_frame, text="Enable Background", 
+                       variable=self.video_position).pack()
+        ttk.Label(vp_frame, text="Background Height (10-50%):").pack()
         ttk.Entry(vp_frame, textvariable=self.video_position_height).pack()
-        ttk.Label(vp_frame, text="Opacity (0-1):").pack()
+        ttk.Label(vp_frame, text="Background Opacity (0.0-1.0):").pack()
         ttk.Entry(vp_frame, textvariable=self.video_position_opacity).pack()
         
-        # Top Background Frame
+        # Top Background Frame with updated labels
         top_frame = ttk.Frame(notebook, padding="10")
         notebook.add(top_frame, text='Top Background')
         ttk.Checkbutton(top_frame, text="Enable Top Background", variable=self.top_bg).pack()
-        ttk.Label(top_frame, text="Height %:").pack()
+        ttk.Label(top_frame, text="Background Height (5-30%):").pack()
         ttk.Entry(top_frame, textvariable=self.top_bg_height).pack()
-        ttk.Label(top_frame, text="Opacity (0-1):").pack()
+        ttk.Label(top_frame, text="Background Opacity (0.0-1.0):").pack()
         ttk.Entry(top_frame, textvariable=self.top_bg_opacity).pack()
         
-        # Bottom Background Frame
+        # Bottom Background Frame with updated labels
         bottom_frame = ttk.Frame(notebook, padding="10")
         notebook.add(bottom_frame, text='Bottom Background')
         ttk.Checkbutton(bottom_frame, text="Enable Bottom Background", variable=self.bottom_bg).pack()
-        ttk.Label(bottom_frame, text="Height %:").pack()
+        ttk.Label(bottom_frame, text="Background Height (5-30%):").pack()
         ttk.Entry(bottom_frame, textvariable=self.bottom_bg_height).pack()
-        ttk.Label(bottom_frame, text="Opacity (0-1):").pack()
+        ttk.Label(bottom_frame, text="Background Opacity (0.0-1.0):").pack()
         ttk.Entry(bottom_frame, textvariable=self.bottom_bg_opacity).pack()
         
-        # Icon Settings Frame
+        # Icon Settings Frame with updated labels
         icon_frame = ttk.Frame(notebook, padding="10")
         notebook.add(icon_frame, text='Icon Settings')
-        ttk.Label(icon_frame, text="Width:").pack()
+        ttk.Label(icon_frame, text="Icon Width (100-1000px):").pack()
         ttk.Entry(icon_frame, textvariable=self.icon_width).pack()
-        ttk.Label(icon_frame, text="X Position (c/l/r or 0-100):").pack()
+        ttk.Label(icon_frame, text="X Position (c=center, l=left, r=right, 0-100):").pack()
         ttk.Entry(icon_frame, textvariable=self.icon_x_pos).pack()
-        ttk.Label(icon_frame, text="Y Position %:").pack()
+        ttk.Label(icon_frame, text="Y Position (0-100%):").pack()
         ttk.Entry(icon_frame, textvariable=self.icon_y_pos).pack()
         
         # Buttons
@@ -92,6 +111,8 @@ class CustomSettingsDialog:
         self.video_position.trace_add("write", self.on_setting_changed)
         self.video_position_height.trace_add("write", self.on_setting_changed)
         self.video_position_opacity.trace_add("write", self.on_setting_changed)
+        self.video_position_type.trace_add("write", self.on_setting_changed)
+        self.video_scale.trace_add("write", self.on_setting_changed)
         self.top_bg.trace_add("write", self.on_setting_changed)
         self.top_bg_height.trace_add("write", self.on_setting_changed)
         self.top_bg_opacity.trace_add("write", self.on_setting_changed)
@@ -108,7 +129,9 @@ class CustomSettingsDialog:
                 'video_position': {
                     'enabled': self.video_position.get(),
                     'height': float(self.video_position_height.get()),
-                    'opacity': float(self.video_position_opacity.get())
+                    'opacity': float(self.video_position_opacity.get()),
+                    'position': self.video_position_type.get(),
+                    'scale': float(self.video_scale.get()) / 100.0
                 },
                 'top_bg': {
                     'enabled': self.top_bg.get(),
@@ -135,7 +158,9 @@ class CustomSettingsDialog:
             'video_position': {
                 'enabled': self.video_position.get(),
                 'height': float(self.video_position_height.get()),
-                'opacity': float(self.video_position_opacity.get())
+                'opacity': float(self.video_position_opacity.get()),
+                'position': self.video_position_type.get(),
+                'scale': float(self.video_scale.get()) / 100.0
             },
             'top_bg': {
                 'enabled': self.top_bg.get(),
@@ -187,11 +212,10 @@ class PreviewPanel:
         if frame is None:
             return None
             
-        # Resize frame to target dimensions
         target_width, target_height = dimensions
         current_height, current_width = frame.shape[:2]
         
-        # Calculate scaling to maintain aspect ratio
+        # Default scaling without any position adjustments
         scale = min(target_width/current_width, target_height/current_height)
         new_width = int(current_width * scale)
         new_height = int(current_height * scale)
@@ -199,16 +223,41 @@ class PreviewPanel:
         # Resize frame
         resized = cv2.resize(frame, (new_width, new_height))
         
-        # Create canvas with target dimensions
+        # Create canvas
         canvas = np.zeros((target_height, target_width, 3), dtype=np.uint8)
         
-        # Center the video
-        y_offset = (target_height - new_height) // 2
+        # Always center by default unless explicitly positioned
         x_offset = (target_width - new_width) // 2
+        y_offset = (target_height - new_height) // 2
+        
+        # Only adjust position if video position is enabled and settings exist
+        if settings and 'video_position' in settings and settings['video_position'].get('enabled', False):
+            position = settings['video_position'].get('position', 'center')
+            scale_factor = settings['video_position'].get('scale', 1.0)
+            
+            # Recalculate size if scale is changed
+            if scale_factor != 1.0:
+                new_width = int(new_width * scale_factor)
+                new_height = int(new_height * scale_factor)
+                resized = cv2.resize(frame, (new_width, new_height))
+                x_offset = (target_width - new_width) // 2
+            
+            # Adjust vertical position
+            if position == 'top':
+                y_offset = 0
+            elif position == 'bottom':
+                y_offset = target_height - new_height
+                # Adjust for black background if enabled
+                if settings['video_position']['enabled']:
+                    bg_height = int(target_height * (settings['video_position']['height'] / 100))
+                    y_offset = target_height - new_height - bg_height
+        
+        # Place video on canvas
         canvas[y_offset:y_offset+new_height, x_offset:x_offset+new_width] = resized
         
+        # Apply effects only if explicitly enabled
         if settings:
-            # Apply video position
+            # Apply video position background
             if settings['video_position']['enabled']:
                 height_percent = settings['video_position']['height']
                 opacity = settings['video_position']['opacity']
@@ -585,33 +634,44 @@ class VideoEditorGUI:
                     self.update_queue.put(("complete", None))
                     return
                 
-                # Convert settings to the correct parameter format
+                # Convert settings to the correct parameter format with proper opacity values
                 if settings['video_position']['enabled']:
                     video_position_params = {
-                        'bottom_height_percent': settings['video_position']['height'],
-                        'opacity': settings['video_position']['opacity']
+                        'bottom_height_percent': float(settings['video_position']['height']),
+                        'opacity': min(1.0, max(0.0, float(settings['video_position']['opacity'])))  # Ensure 0-1 range
                     }
                 else:
                     video_position_params = None
 
                 if settings['top_bg']['enabled']:
                     top_bg_params = {
-                        'height_percent': settings['top_bg']['height'],
-                        'opacity': settings['top_bg']['opacity']
+                        'height_percent': float(settings['top_bg']['height']),
+                        'opacity': min(1.0, max(0.0, float(settings['top_bg']['opacity'])))  # Ensure 0-1 range
                     }
                 else:
                     top_bg_params = None
 
                 if settings['bottom_bg']['enabled']:
                     black_bg_params = {
-                        'height_percent': settings['bottom_bg']['height'],
-                        'opacity': settings['bottom_bg']['opacity']
+                        'height_percent': float(settings['bottom_bg']['height']),
+                        'opacity': min(1.0, max(0.0, float(settings['bottom_bg']['opacity'])))  # Ensure 0-1 range
                     }
                 else:
                     black_bg_params = None
 
-                # Icon params don't need restructuring
-                icon_params = settings['icon']
+                # Icon params
+                icon_params = {
+                    'width': int(settings['icon']['width']),
+                    'x_position': settings['icon']['x_position'],
+                    'y_position': min(100.0, max(0.0, float(settings['icon']['y_position'])))  # Ensure 0-100 range
+                }
+
+            # Log the parameters for debugging
+            self.logger.info(f"Processing with parameters:")
+            self.logger.info(f"Video position: {video_position_params}")
+            self.logger.info(f"Top background: {top_bg_params}")
+            self.logger.info(f"Bottom background: {black_bg_params}")
+            self.logger.info(f"Icon: {icon_params}")
 
             # Set target dimensions based on aspect ratio
             ratio_dimensions = {
@@ -663,3 +723,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
