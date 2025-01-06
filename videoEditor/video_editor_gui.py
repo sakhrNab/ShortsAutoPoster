@@ -381,6 +381,14 @@ class PreviewPanel:
                     thickness = 2
                     margin = overlay['margin']
 
+                    # Apply bold if enabled
+                    if overlay.get('bold', False):
+                        thickness = 3
+
+                    # Apply italic by adjusting the font face
+                    if overlay.get('italic', False):
+                        font_face = cv2.FONT_HERSHEY_COMPLEX_SMALL
+
                     # Get text size
                     text_size = cv2.getTextSize(overlay['text'], font_face, font_scale, thickness)[0]
 
@@ -658,7 +666,22 @@ class TextOverlaySettingsDialog:
         self.dialog.title("Text Overlay Settings")
         self.dialog.geometry("400x500")
         self.result = None
+        # Move get_system_fonts call here
+        self.available_fonts = self.get_system_fonts()
         self.create_widgets(settings)
+
+    def get_system_fonts(self):
+        """Get list of available system fonts using cv2"""
+        try:
+            import matplotlib.font_manager
+            fonts = [f.name for f in matplotlib.font_manager.fontManager.ttflist]
+            # Add some common fonts that might not be detected
+            common_fonts = ['Arial', 'Helvetica', 'Times New Roman', 'Courier New', 'Verdana']
+            fonts.extend([f for f in common_fonts if f not in fonts])
+            return sorted(set(fonts))  # Remove duplicates and sort
+        except ImportError:
+            # Fallback to basic fonts if matplotlib is not available
+            return ['Arial', 'Helvetica', 'Times New Roman', 'Courier New', 'Verdana']
 
     def create_widgets(self, settings):
         settings = settings or {}
@@ -670,16 +693,42 @@ class TextOverlaySettingsDialog:
         if settings.get('text'):
             self.text.insert('1.0', settings['text'])
 
-        # Font settings
-        ttk.Label(self.dialog, text="Font:").pack(pady=2)
-        self.font = ttk.Entry(self.dialog)
-        self.font.pack(fill='x', padx=5)
-        self.font.insert(0, settings.get('font', 'Arial'))
+        # Font settings frame
+        font_frame = ttk.LabelFrame(self.dialog, text="Font Settings", padding="5")
+        font_frame.pack(fill='x', padx=5, pady=5)
 
-        ttk.Label(self.dialog, text="Font Size:").pack(pady=2)
-        self.font_size = ttk.Entry(self.dialog)
-        self.font_size.pack(fill='x', padx=5)
+        # Font family dropdown
+        ttk.Label(font_frame, text="Font:").pack(pady=2)
+        self.font = ttk.Combobox(font_frame, values=self.available_fonts)
+        self.font.pack(fill='x', padx=5)
+        self.font.set(settings.get('font', 'Arial'))
+
+        # Font size
+        ttk.Label(font_frame, text="Font Size:").pack(pady=2)
+        size_frame = ttk.Frame(font_frame)
+        size_frame.pack(fill='x', padx=5)
+        
+        self.font_size = ttk.Entry(size_frame)
+        self.font_size.pack(side='left', fill='x', expand=True)
         self.font_size.insert(0, str(settings.get('font_size', 24)))
+        
+        # Size adjustment buttons
+        ttk.Button(size_frame, text="-", width=3, 
+                  command=lambda: self.adjust_font_size(-2)).pack(side='left', padx=2)
+        ttk.Button(size_frame, text="+", width=3,
+                  command=lambda: self.adjust_font_size(2)).pack(side='left')
+
+        # Style options
+        style_frame = ttk.Frame(font_frame)
+        style_frame.pack(fill='x', padx=5, pady=5)
+        
+        self.bold = tk.BooleanVar(value=settings.get('bold', False))
+        self.italic = tk.BooleanVar(value=settings.get('italic', False))
+        
+        ttk.Checkbutton(style_frame, text="Bold", 
+                       variable=self.bold).pack(side='left', padx=5)
+        ttk.Checkbutton(style_frame, text="Italic", 
+                       variable=self.italic).pack(side='left', padx=5)
 
         # Colors
         ttk.Label(self.dialog, text="Text Color:").pack(pady=2)
@@ -714,6 +763,16 @@ class TextOverlaySettingsDialog:
         ttk.Button(btn_frame, text="OK", command=self.ok).pack(side='right', padx=5)
         ttk.Button(btn_frame, text="Cancel", command=self.cancel).pack(side='right')
 
+    def adjust_font_size(self, delta):
+        """Adjust font size by delta amount"""
+        try:
+            current = int(self.font_size.get())
+            new_size = max(8, min(72, current + delta))  # Limit size between 8 and 72
+            self.font_size.delete(0, tk.END)
+            self.font_size.insert(0, str(new_size))
+        except ValueError:
+            pass
+
     def ok(self):
         try:
             self.result = {
@@ -724,7 +783,9 @@ class TextOverlaySettingsDialog:
                 'bg_color': self.bg_color.get(),
                 'bg_opacity': float(self.bg_opacity.get()),
                 'position': self.position.get(),
-                'margin': int(self.margin.get())
+                'margin': int(self.margin.get()),
+                'bold': self.bold.get(),
+                'italic': self.italic.get()
             }
             self.dialog.destroy()
         except ValueError as e:
@@ -1329,4 +1390,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -36,6 +36,8 @@ TEXT_OVERLAY_DEFAULTS:
   bg_opacity: 0.5             # Default background opacity (0-1)
   margin: 20                  # Default margin from edge in pixels
   box_padding: 10             # Padding around text in pixels
+  bold: false                 # Default bold setting
+  italic: false               # Default italic setting
 
 #######################
 # Platform-Specific Settings
