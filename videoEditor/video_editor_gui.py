@@ -488,6 +488,7 @@ class TextOverlayDialog:
         self.drag_line = None
         self.current_index = None  # Add this line
         self.drag_line_index = None  # Add this line to track the arrow position
+        self.parent = parent  # Add this line to store parent reference
 
     def create_widgets(self):
         # Text overlays list
@@ -578,9 +579,11 @@ class TextOverlayDialog:
                     else:
                         self.overlays.insert(drop_index, overlay)
                     
-                    # Update the display and notify callback
+                    # Update the display
                     self.update_list()
-                    self.callback(self.overlays)
+                    
+                    # Force immediate callback for preview update
+                    self.callback(self.overlays.copy())  # Send a copy to prevent reference issues
                 
         except (IndexError, tk.TclError) as e:
             print(f"Error during drag-and-drop: {str(e)}")
@@ -1029,12 +1032,23 @@ class VideoEditorGUI:
         self.root.wait_window(dialog.dialog)
 
     def update_text_overlays(self, overlays):
-        self.text_overlays = overlays
+        """Update text overlays and refresh preview"""
+        self.text_overlays = overlays.copy()  # Make a copy to prevent reference issues
         if hasattr(self, 'preview_panel'):
-            # Merge text overlay settings with existing settings
+            # Create new settings dictionary to force update
             current_settings = self.preview_panel.get_current_settings() or {}
-            current_settings['text_overlays'] = overlays
-            self.preview_panel.update_preview(settings=current_settings, dimensions=self.current_dimensions)
+            new_settings = current_settings.copy()
+            new_settings['text_overlays'] = self.text_overlays
+            
+            # Update preview with new settings
+            self.preview_panel.update_preview(
+                settings=new_settings,
+                dimensions=self.current_dimensions,
+                video_path=self.current_preview_video
+            )
+            
+            # Store updated settings
+            self.session_settings = new_settings
 
     def update_progress(self, value):
         self.progress.set(value)
