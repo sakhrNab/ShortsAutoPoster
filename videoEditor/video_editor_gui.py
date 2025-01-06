@@ -1,6 +1,6 @@
 # video_editor_gui.py
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, scrolledtext
+from tkinter import ttk, filedialog, messagebox, scrolledtext, Y
 import os
 import yaml
 import threading
@@ -482,15 +482,28 @@ class TextOverlayDialog:
         self.dialog.geometry("600x400")
         self.callback = callback
         self.overlays = []
+        self.dragging = False
+        self.drag_source_index = None
         self.create_widgets()
+        self.drag_line = None
+        self.current_index = None  # Add this line
+        self.drag_line_index = None  # Add this line to track the arrow position
 
     def create_widgets(self):
         # Text overlays list
         list_frame = ttk.LabelFrame(self.dialog, text="Text Overlays", padding="5")
         list_frame.pack(fill='both', expand=True, padx=5, pady=5)
 
-        self.overlay_list = tk.Listbox(list_frame, height=6)
+        self.overlay_list = tk.Listbox(list_frame, height=6, selectmode=tk.SINGLE)
         self.overlay_list.pack(side=tk.LEFT, fill='both', expand=True)
+
+        # Add drag and drop bindings
+        self.overlay_list.bind('<Button-1>', self.on_press)
+        self.overlay_list.bind('<B1-Motion>', self.on_motion)
+        self.overlay_list.bind('<ButtonRelease-1>', self.on_release)
+
+        # Add visual feedback
+        self.drag_line = None
 
         scroll = ttk.Scrollbar(list_frame, orient='vertical', command=self.overlay_list.yview)
         scroll.pack(side=tk.RIGHT, fill='y')
@@ -505,6 +518,84 @@ class TextOverlayDialog:
         ttk.Button(btn_frame, text="Remove", command=self.remove_overlay).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_frame, text="OK", command=self.ok).pack(side=tk.RIGHT, padx=2)
 
+    def on_press(self, event):
+        """Handle mouse press to start drag operation"""
+        index = self.overlay_list.nearest(event.y)
+        if index >= 0 and index < self.overlay_list.size():  # Add bounds check
+            self.drag_source_index = index
+            self.overlay_list.selection_clear(0, tk.END)
+            self.overlay_list.selection_set(index)
+
+    def on_motion(self, event):
+        """Handle mouse motion during drag"""
+        if self.drag_source_index is not None:
+            try:
+                current_index = self.overlay_list.nearest(event.y)
+                if current_index >= self.overlay_list.size():
+                    current_index = self.overlay_list.size() - 1
+                
+                # Remove previous arrow if it exists
+                if self.drag_line_index is not None:
+                    self.overlay_list.delete(self.drag_line_index)
+                
+                # Don't show arrow at source position
+                if current_index != self.drag_source_index:
+                    self.drag_line_index = current_index
+                    self.overlay_list.insert(current_index, "▼")
+                    self.current_index = current_index
+                else:
+                    self.drag_line_index = None
+                    self.current_index = self.drag_source_index
+                
+            except tk.TclError:
+                pass
+
+    def on_release(self, event):
+        """Handle mouse release to complete drag operation"""
+        try:
+            if self.drag_source_index is not None and len(self.overlays) > 0:
+                # Remove the arrow indicator
+                if self.drag_line_index is not None:
+                    self.overlay_list.delete(self.drag_line_index)
+                    
+                drop_index = self.current_index if self.current_index is not None else self.drag_source_index
+                
+                # Only move if dropping at a different position
+                if drop_index != self.drag_source_index:
+                    # Get the overlay being moved
+                    overlay = self.overlays[self.drag_source_index]
+                    
+                    # Remove from original position
+                    self.overlays.pop(self.drag_source_index)
+                    
+                    # Adjust drop index if needed
+                    if drop_index > self.drag_source_index:
+                        drop_index -= 1
+                    
+                    # Insert at new position
+                    if drop_index >= len(self.overlays):
+                        self.overlays.append(overlay)
+                    else:
+                        self.overlays.insert(drop_index, overlay)
+                    
+                    # Update the display and notify callback
+                    self.update_list()
+                    self.callback(self.overlays)
+                
+        except (IndexError, tk.TclError) as e:
+            print(f"Error during drag-and-drop: {str(e)}")
+        finally:
+            self.drag_source_index = None
+            self.current_index = None
+            self.drag_line_index = None
+
+    def update_list(self):
+        """Update the listbox display"""
+        self.overlay_list.delete(0, tk.END)
+        for idx, overlay in enumerate(self.overlays):
+            # Add numbering to make order clear
+            self.overlay_list.insert(tk.END, f"{idx + 1}. {overlay['text']} ({overlay['position']})")
+
     def add_overlay(self):
         dialog = TextOverlaySettingsDialog(self.dialog)
         self.dialog.wait_window(dialog.dialog)
@@ -515,7 +606,7 @@ class TextOverlayDialog:
 
     def edit_overlay(self):
         sel = self.overlay_list.curselection()
-        if sel:
+        if sel and sel[0] < len(self.overlays):  # Add bounds check
             idx = sel[0]
             dialog = TextOverlaySettingsDialog(self.dialog, self.overlays[idx])
             self.dialog.wait_window(dialog.dialog)
@@ -722,7 +813,7 @@ class VideoEditorGUI:
         list_frame.pack(fill='both', expand=True)
         
         scrollbar = ttk.Scrollbar(list_frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        scrollbar.pack(side=tk.RIGHT, fill=Y)
         
         self.video_listbox = tk.Listbox(list_frame, selectmode=tk.MULTIPLE, height=6, 
                                        yscrollcommand=scrollbar.set)
@@ -950,10 +1041,15 @@ class VideoEditorGUI:
         self.root.update_idletasks()
         
     def process_complete(self):
-        self.processing = False
-        self.process_button.config(state=tk.NORMAL)
-        self.status_label.config(text="Processing complete!")
-        messagebox.showinfo("Complete", "Video processing has finished!")
+        """Handle completion of video processing"""
+        try:
+            self.processing = False
+            self.process_button.config(state=tk.NORMAL)
+            self.status_label.config(text="Processing complete!")
+            # Use after() to avoid blocking
+            self.root.after(100, lambda: messagebox.showinfo("Complete", "Video processing has finished!"))
+        except Exception as e:
+            print(f"Error in process_complete: {str(e)}")
         
     def start_processing(self):
         if not self.source_folder.get():
@@ -1198,3 +1294,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
