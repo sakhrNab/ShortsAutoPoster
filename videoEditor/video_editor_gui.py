@@ -14,6 +14,7 @@ from PIL import Image, ImageTk
 import random
 import numpy as np
 import subprocess
+from tkinter import colorchooser
 
 class CustomSettingsDialog:
     def __init__(self, parent, preview_callback, session_settings=None):
@@ -660,6 +661,43 @@ class TextOverlayDialog:
     def ok(self):
         self.dialog.destroy()
 
+class ColorPickerDialog:
+    def __init__(self, parent, initial_color="#FFFFFF"):
+        self.result = initial_color
+        # Convert named colors to hex before processing
+        rgb_color = self.convert_to_rgb(initial_color)
+        color = colorchooser.askcolor(rgb_color, parent=parent, title="Choose Color")
+        if color[1]:  # color is ((r,g,b), hex_value)
+            self.result = color[1]
+
+    def convert_to_rgb(self, color):
+        """Convert color name or hex to RGB tuple"""
+        color_map = {
+            'white': (255, 255, 255),
+            'black': (0, 0, 0),
+            'red': (255, 0, 0),
+            'green': (0, 255, 0),
+            'blue': (0, 0, 255),
+        }
+        
+        # If it's a named color
+        if color.lower() in color_map:
+            return color_map[color.lower()]
+        
+        # If it's already a hex color
+        if color.startswith('#'):
+            hex_color = color.lstrip('#')
+            if len(hex_color) == 6:
+                return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+                
+        # Default to white if color is invalid
+        return (255, 255, 255)
+
+    def _hex_to_rgb(self, hex_color):
+        """Convert hex color to RGB tuple"""
+        hex_color = hex_color.lstrip('#')
+        return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
 class TextOverlaySettingsDialog:
     def __init__(self, parent, settings=None):
         self.dialog = tk.Toplevel(parent)
@@ -730,21 +768,50 @@ class TextOverlaySettingsDialog:
         ttk.Checkbutton(style_frame, text="Italic", 
                        variable=self.italic).pack(side='left', padx=5)
 
-        # Colors
-        ttk.Label(self.dialog, text="Text Color:").pack(pady=2)
-        self.color = ttk.Entry(self.dialog)
-        self.color.pack(fill='x', padx=5)
+        # Colors section with color pickers
+        colors_frame = ttk.LabelFrame(self.dialog, text="Colors", padding="5")
+        colors_frame.pack(fill='x', padx=5, pady=5)
+
+        # Text color row
+        text_color_frame = ttk.Frame(colors_frame)
+        text_color_frame.pack(fill='x', padx=5, pady=2)
+        ttk.Label(text_color_frame, text="Text Color:").pack(side='left')
+        
+        self.color = ttk.Entry(text_color_frame, width=10)
+        self.color.pack(side='left', padx=5)
         self.color.insert(0, settings.get('color', 'white'))
+        
+        self.text_color_preview = tk.Label(text_color_frame, width=3, relief="sunken")
+        self.text_color_preview.pack(side='left', padx=2)
+        
+        ttk.Button(text_color_frame, text="Pick", 
+                  command=self.pick_text_color).pack(side='left', padx=5)
 
-        ttk.Label(self.dialog, text="Background Color:").pack(pady=2)
-        self.bg_color = ttk.Entry(self.dialog)
-        self.bg_color.pack(fill='x', padx=5)
+        # Background color row
+        bg_color_frame = ttk.Frame(colors_frame)
+        bg_color_frame.pack(fill='x', padx=5, pady=2)
+        ttk.Label(bg_color_frame, text="Background Color:").pack(side='left')
+        
+        self.bg_color = ttk.Entry(bg_color_frame, width=10)
+        self.bg_color.pack(side='left', padx=5)
         self.bg_color.insert(0, settings.get('bg_color', 'black'))
+        
+        self.bg_color_preview = tk.Label(bg_color_frame, width=3, relief="sunken")
+        self.bg_color_preview.pack(side='left', padx=2)
+        
+        ttk.Button(bg_color_frame, text="Pick", 
+                  command=self.pick_bg_color).pack(side='left', padx=5)
 
-        ttk.Label(self.dialog, text="Background Opacity (0-1):").pack(pady=2)
-        self.bg_opacity = ttk.Entry(self.dialog)
-        self.bg_opacity.pack(fill='x', padx=5)
+        # Background opacity
+        opacity_frame = ttk.Frame(colors_frame)
+        opacity_frame.pack(fill='x', padx=5, pady=2)
+        ttk.Label(opacity_frame, text="Background Opacity (0-1):").pack(side='left')
+        self.bg_opacity = ttk.Entry(opacity_frame, width=10)
+        self.bg_opacity.pack(side='left', padx=5)
         self.bg_opacity.insert(0, str(settings.get('bg_opacity', 0.5)))
+
+        # Update color previews
+        self.update_color_previews()
 
         # Position
         ttk.Label(self.dialog, text="Position:").pack(pady=2)
@@ -762,6 +829,27 @@ class TextOverlaySettingsDialog:
         btn_frame.pack(fill='x', pady=10)
         ttk.Button(btn_frame, text="OK", command=self.ok).pack(side='right', padx=5)
         ttk.Button(btn_frame, text="Cancel", command=self.cancel).pack(side='right')
+
+    def update_color_previews(self):
+        """Update the color preview swatches"""
+        self.text_color_preview.configure(bg=self.color.get())
+        self.bg_color_preview.configure(bg=self.bg_color.get())
+
+    def pick_text_color(self):
+        """Open color picker for text color"""
+        dialog = ColorPickerDialog(self.dialog, self.color.get())
+        if dialog.result:
+            self.color.delete(0, tk.END)
+            self.color.insert(0, dialog.result)
+            self.update_color_previews()
+
+    def pick_bg_color(self):
+        """Open color picker for background color"""
+        dialog = ColorPickerDialog(self.dialog, self.bg_color.get())
+        if dialog.result:
+            self.bg_color.delete(0, tk.END)
+            self.bg_color.insert(0, dialog.result)
+            self.update_color_previews()
 
     def adjust_font_size(self, delta):
         """Adjust font size by delta amount"""
@@ -1117,6 +1205,7 @@ class VideoEditorGUI:
         dialog.overlays = self.text_overlays.copy()
         dialog.update_list()
         self.root.wait_window(dialog.dialog)
+        self.text_overlays = dialog.overlays
 
     def update_text_overlays(self, overlays):
         """Update text overlays and refresh preview"""
