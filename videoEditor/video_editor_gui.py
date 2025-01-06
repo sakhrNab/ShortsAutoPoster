@@ -1,18 +1,364 @@
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, scrolledtext
+from tkinter import ttk, filedialog, messagebox, scrolledtext, colorchooser
 import os
 import yaml
 import threading
 import queue
 import logging
 from datetime import datetime
-from video_automater11 import process_video, load_config, get_parameters_from_config, get_platform_defaults, generate_filter_complex
-from typing import Dict, Any, Tuple
+from video_automater11 import (
+    process_video, load_config, get_parameters_from_config,
+    get_platform_defaults
+)
+from typing import Dict, Any, Tuple, List
 import cv2
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw, ImageFont
 import random
 import numpy as np
 import subprocess
+
+# A small list of fonts for demonstration.
+COMMON_FONTS = ["Arial", "Helvetica", "Times New Roman", "Courier New", "Verdana"]
+
+def safe_color_for_chooser(hex_str: str) -> str:
+    """
+    If the hex has 8 digits (like #00000000), 
+    strip alpha so colorchooser doesn't crash.
+    """
+    hex_str = hex_str.strip()
+    if hex_str.startswith("#"):
+        hex_str = hex_str[1:]
+    # If it has 8 characters, strip last two (alpha) for the dialog
+    if len(hex_str) == 8:
+        # keep only 6 digits
+        hex_str = hex_str[:6]
+    return f"#{hex_str}"
+
+def generate_filter_complex(
+    input_path,
+    brand_icon,
+    target_dimensions,
+    black_bg_params=None,
+    video_position_params=None,
+    top_bg_params=None,
+    icon_params=None,
+    text_overlays=None
+):
+    """
+    Modified to accept 8 arguments, so we don't get the error 
+    "takes from 3 to 7 positional arguments but 8 were given".
+
+    For demonstration, we do:
+      [0:v]scale=WxH[scaled];
+      [1:v]scale=100:100[icon];
+      [scaled][icon]overlay=10:10
+
+    No separate labeling of output, so we avoid unconnected outputs.
+    """
+    width, height = target_dimensions
+
+    filter_strs = []
+    # 1) Scale main video to (width x height)
+    filter_strs.append(f"[0:v]scale={width}:{height}[scaled]")
+
+    # 2) Scale icon
+    filter_strs.append("[1:v]scale=100:100[icon]")
+
+    # 3) Overlay icon at (10,10)
+    filter_strs.append("[scaled][icon]overlay=10:10")
+
+    # Combine everything
+    filter_complex = ";".join(filter_strs)
+    return filter_complex
+
+
+def ImageColor_getrgba(hex_str):
+    """
+    Converts a hex color (#RRGGBB or #RRGGBBAA) to RGBA.
+    If alpha not provided, defaults to 255.
+    """
+    hex_str = hex_str.strip().lstrip('#')
+    if len(hex_str) == 6:
+        r = int(hex_str[0:2], 16)
+        g = int(hex_str[2:4], 16)
+        b = int(hex_str[4:6], 16)
+        return (r, g, b, 255)
+    elif len(hex_str) == 8:
+        r = int(hex_str[0:2], 16)
+        g = int(hex_str[2:4], 16)
+        b = int(hex_str[4:6], 16)
+        a = int(hex_str[6:8], 16)
+        return (r, g, b, a)
+    return (255, 255, 255, 255)
+
+
+class OverlayEditorDialog:
+    """
+    A dialog for editing/creating a single text overlay in real time.
+    Changes are pushed immediately via on_change_callback.
+    """
+    def __init__(self, parent, overlay_data, on_change_callback):
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Edit Text Overlay")
+        self.dialog.geometry("380x480")
+        self.dialog.transient(parent)
+
+        self.overlay_data = overlay_data  # dict with overlay settings
+        self.on_change_callback = on_change_callback
+
+        main_frame = ttk.Frame(self.dialog, padding=10)
+        main_frame.pack(expand=True, fill='both')
+
+        row_idx = 0
+        # Text
+        ttk.Label(main_frame, text="Text:").grid(row=row_idx, column=0, sticky=tk.W)
+        self.text_var = tk.StringVar(value=self.overlay_data.get("text", ""))
+        text_entry = ttk.Entry(main_frame, textvariable=self.text_var)
+        text_entry.grid(row=row_idx, column=1, pady=2, sticky=tk.EW)
+        text_entry.bind("<KeyRelease>", self.update_overlay)
+        row_idx += 1
+
+        # Font
+        ttk.Label(main_frame, text="Font:").grid(row=row_idx, column=0, sticky=tk.W)
+        self.font_var = tk.StringVar(value=self.overlay_data.get("font", "Arial"))
+        self.font_combo = ttk.Combobox(
+            main_frame, textvariable=self.font_var, values=COMMON_FONTS, state="readonly"
+        )
+        self.font_combo.grid(row=row_idx, column=1, pady=2, sticky=tk.EW)
+        self.font_combo.bind("<<ComboboxSelected>>", self.update_overlay)
+        row_idx += 1
+
+        # Size
+        ttk.Label(main_frame, text="Size:").grid(row=row_idx, column=0, sticky=tk.W)
+        self.size_var = tk.IntVar(value=self.overlay_data.get("size", 24))
+        size_spin = ttk.Spinbox(
+            main_frame,
+            from_=8, to=300, increment=2, textvariable=self.size_var,
+            command=self.update_overlay  # spinbox arrow clicks
+        )
+        size_spin.grid(row=row_idx, column=1, pady=2, sticky=tk.EW)
+        # If user types a value
+        size_spin.bind("<KeyRelease>", self.update_overlay)
+        row_idx += 1
+
+        # Color
+        ttk.Label(main_frame, text="Color:").grid(row=row_idx, column=0, sticky=tk.W)
+        color_frame = ttk.Frame(main_frame)
+        color_frame.grid(row=row_idx, column=1, pady=2, sticky=tk.EW)
+        self.color_var = tk.StringVar(value=self.overlay_data.get("color", "#FFFFFF"))
+        color_entry = ttk.Entry(color_frame, textvariable=self.color_var, width=10)
+        color_entry.pack(side=tk.LEFT)
+        ttk.Button(color_frame, text="Pick", command=self.pick_text_color).pack(side=tk.LEFT, padx=5)
+        row_idx += 1
+
+        # BG Color + Opacity
+        ttk.Label(main_frame, text="BG Color:").grid(row=row_idx, column=0, sticky=tk.W)
+        bg_frame = ttk.Frame(main_frame)
+        bg_frame.grid(row=row_idx, column=1, pady=2, sticky=tk.EW)
+        self.bg_color_var = tk.StringVar(value=self.overlay_data.get("bg_color", "#00000000"))
+        bg_entry = ttk.Entry(bg_frame, textvariable=self.bg_color_var, width=10)
+        bg_entry.pack(side=tk.LEFT)
+        ttk.Button(bg_frame, text="Pick", command=self.pick_bg_color).pack(side=tk.LEFT, padx=5)
+        row_idx += 1
+
+        ttk.Label(main_frame, text="BG Opacity:").grid(row=row_idx, column=0, sticky=tk.W)
+        self.bg_opacity_var = tk.DoubleVar(value=self.overlay_data.get("bg_opacity", 0.0))
+        bg_opacity_spin = ttk.Spinbox(
+            main_frame, from_=0.0, to=1.0, increment=0.1, textvariable=self.bg_opacity_var,
+            command=self.update_overlay
+        )
+        bg_opacity_spin.grid(row=row_idx, column=1, pady=2, sticky=tk.EW)
+        bg_opacity_spin.bind("<KeyRelease>", self.update_overlay)
+        row_idx += 1
+
+        # Position
+        pos_frame = ttk.LabelFrame(main_frame, text="Position (%)")
+        pos_frame.grid(row=row_idx, column=0, columnspan=2, pady=5, sticky=tk.EW)
+        pos_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(pos_frame, text="X%:").grid(row=0, column=0, sticky=tk.W)
+        self.x_var = tk.DoubleVar(value=self.overlay_data.get("x", 50.0))
+        x_spin = ttk.Spinbox(pos_frame, from_=0, to=100, increment=1, textvariable=self.x_var,
+                             command=self.update_overlay)
+        x_spin.grid(row=0, column=1, padx=2, pady=2, sticky=tk.EW)
+        x_spin.bind("<KeyRelease>", self.update_overlay)
+
+        ttk.Label(pos_frame, text="Y%:").grid(row=0, column=2, sticky=tk.W)
+        self.y_var = tk.DoubleVar(value=self.overlay_data.get("y", 50.0))
+        y_spin = ttk.Spinbox(pos_frame, from_=0, to=100, increment=1, textvariable=self.y_var,
+                             command=self.update_overlay)
+        y_spin.grid(row=0, column=3, padx=2, pady=2, sticky=tk.EW)
+        y_spin.bind("<KeyRelease>", self.update_overlay)
+
+        row_idx += 1
+
+        # Outline & Shadow
+        style_frame = ttk.Frame(main_frame)
+        style_frame.grid(row=row_idx, column=0, columnspan=2, sticky=tk.EW, pady=5)
+        self.outline_var = tk.BooleanVar(value=self.overlay_data.get("outline", False))
+        ttk.Checkbutton(style_frame, text="Outline", variable=self.outline_var,
+                        command=self.update_overlay).pack(side=tk.LEFT, padx=5)
+        self.shadow_var = tk.BooleanVar(value=self.overlay_data.get("shadow", False))
+        ttk.Checkbutton(style_frame, text="Shadow", variable=self.shadow_var,
+                        command=self.update_overlay).pack(side=tk.LEFT, padx=5)
+        row_idx += 1
+
+        # Buttons
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.grid(row=row_idx, column=0, columnspan=2, pady=10)
+        ttk.Button(btn_frame, text="Close", command=self.close_dialog).pack(side=tk.RIGHT, padx=5)
+
+        for col in range(2):
+            main_frame.columnconfigure(col, weight=1)
+
+    def pick_text_color(self):
+        # strip alpha if present
+        initial = safe_color_for_chooser(self.color_var.get())
+        color = colorchooser.askcolor(initialcolor=initial)
+        if color and color[1]:
+            self.color_var.set(color[1])
+            self.update_overlay()
+
+    def pick_bg_color(self):
+        # strip alpha if present
+        initial = safe_color_for_chooser(self.bg_color_var.get())
+        color = colorchooser.askcolor(initialcolor=initial)
+        if color and color[1]:
+            # If user picks #RRGGBB, we can restore alpha if needed
+            # but let's just store it as #RRGGBB for simplicity
+            self.bg_color_var.set(color[1])
+            self.update_overlay()
+
+    def update_overlay(self, *args):
+        self.overlay_data["text"] = self.text_var.get()
+        self.overlay_data["font"] = self.font_var.get()
+        self.overlay_data["size"] = self.size_var.get()
+        self.overlay_data["color"] = self.color_var.get()
+        self.overlay_data["bg_color"] = self.bg_color_var.get()
+        self.overlay_data["bg_opacity"] = self.bg_opacity_var.get()
+        self.overlay_data["x"] = self.x_var.get()
+        self.overlay_data["y"] = self.y_var.get()
+        self.overlay_data["outline"] = self.outline_var.get()
+        self.overlay_data["shadow"] = self.shadow_var.get()
+
+        self.on_change_callback()
+
+    def close_dialog(self):
+        self.dialog.destroy()
+
+
+class TextOverlaysDialog:
+    """
+    Manages multiple text overlays in a list (with add, edit, remove, reorder).
+    Changes appear in real-time (no separate Apply needed).
+    """
+    def __init__(self, parent, text_overlays, on_change_callback):
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Text Overlays")
+        self.dialog.geometry("450x400")
+        self.dialog.transient(parent)
+
+        self.text_overlays = text_overlays  # list of dict
+        self.on_change_callback = on_change_callback
+
+        main_frame = ttk.Frame(self.dialog, padding=5)
+        main_frame.pack(expand=True, fill='both')
+
+        # Listbox
+        list_frame = ttk.LabelFrame(main_frame, text="Overlays")
+        list_frame.pack(side=tk.LEFT, fill='both', expand=True)
+
+        self.overlay_listbox = tk.Listbox(list_frame, height=15)
+        self.overlay_listbox.pack(side=tk.LEFT, fill='both', expand=True)
+        scroll = ttk.Scrollbar(list_frame, command=self.overlay_listbox.yview)
+        scroll.pack(side=tk.RIGHT, fill='y')
+        self.overlay_listbox.config(yscrollcommand=scroll.set)
+
+        self.refresh_listbox()
+
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.pack(side=tk.RIGHT, fill='y', padx=5)
+        ttk.Button(btn_frame, text="Add", command=self.add_overlay).pack(pady=2, fill='x')
+        ttk.Button(btn_frame, text="Edit", command=self.edit_overlay).pack(pady=2, fill='x')
+        ttk.Button(btn_frame, text="Remove", command=self.remove_overlay).pack(pady=2, fill='x')
+        ttk.Button(btn_frame, text="Up", command=self.move_up).pack(pady=2, fill='x')
+        ttk.Button(btn_frame, text="Down", command=self.move_down).pack(pady=2, fill='x')
+        ttk.Button(btn_frame, text="Close", command=self.close_dialog).pack(pady=20, fill='x')
+
+        self.overlay_listbox.bind("<Double-Button-1>", lambda e: self.edit_overlay())
+
+    def refresh_listbox(self):
+        self.overlay_listbox.delete(0, tk.END)
+        for i, ov in enumerate(self.text_overlays):
+            text_str = ov.get("text", "(no text)")
+            self.overlay_listbox.insert(tk.END, f"{i+1}. {text_str}")
+
+    def add_overlay(self):
+        new_overlay = {
+            "text": "New Overlay",
+            "font": "Arial",
+            "size": 40,
+            "color": "#FFFFFF",
+            "bg_color": "#00000000",
+            "bg_opacity": 0.0,
+            "x": 50.0,
+            "y": 50.0,
+            "outline": False,
+            "shadow": False
+        }
+        self.text_overlays.append(new_overlay)
+        self.refresh_listbox()
+        self.on_change_callback()
+
+        idx = len(self.text_overlays) - 1
+        self.overlay_listbox.select_set(idx)
+        self.edit_overlay()
+
+    def edit_overlay(self):
+        sel = self.overlay_listbox.curselection()
+        if not sel:
+            return
+        idx = sel[0]
+        overlay_data = self.text_overlays[idx]
+
+        def refresh_callback():
+            self.on_change_callback()
+            self.refresh_listbox()
+
+        OverlayEditorDialog(self.dialog, overlay_data, refresh_callback)
+
+    def remove_overlay(self):
+        sel = self.overlay_listbox.curselection()
+        if not sel:
+            return
+        idx = sel[0]
+        del self.text_overlays[idx]
+        self.refresh_listbox()
+        self.on_change_callback()
+
+    def move_up(self):
+        sel = self.overlay_listbox.curselection()
+        if not sel or sel[0] == 0:
+            return
+        idx = sel[0]
+        self.text_overlays[idx-1], self.text_overlays[idx] = self.text_overlays[idx], self.text_overlays[idx-1]
+        self.refresh_listbox()
+        self.overlay_listbox.select_set(idx-1)
+        self.on_change_callback()
+
+    def move_down(self):
+        sel = self.overlay_listbox.curselection()
+        if not sel or sel[0] == len(self.text_overlays)-1:
+            return
+        idx = sel[0]
+        self.text_overlays[idx+1], self.text_overlays[idx] = self.text_overlays[idx], self.text_overlays[idx+1]
+        self.refresh_listbox()
+        self.overlay_listbox.select_set(idx+1)
+        self.on_change_callback()
+
+    def close_dialog(self):
+        self.dialog.destroy()
+
 
 class CustomSettingsDialog:
     def __init__(self, parent, preview_callback, session_settings=None):
@@ -21,60 +367,88 @@ class CustomSettingsDialog:
         self.dialog.geometry("500x600")
         self.dialog.transient(parent)
         
-        # Initialize variables with session settings if available, otherwise use defaults
-        self.video_position = tk.BooleanVar(value=session_settings.get('video_position', {}).get('enabled', False) if session_settings else False)
-        self.video_position_height = tk.StringVar(value=str(session_settings.get('video_position', {}).get('height', 20)) if session_settings else "20")
-        self.video_position_opacity = tk.StringVar(value=str(session_settings.get('video_position', {}).get('opacity', 0.5)) if session_settings else "0.5")
-        self.video_position_type = tk.StringVar(value=session_settings.get('video_position', {}).get('position', 'center') if session_settings else "center")
-        self.video_scale = tk.StringVar(value=str(int(session_settings.get('video_position', {}).get('scale', 1.0) * 100)) if session_settings else "100")
+        if session_settings is None:
+            session_settings = {}
+
+        # Video/back/icon variables
+        self.video_position = tk.BooleanVar(
+            value=session_settings.get('video_position', {}).get('enabled', False)
+        )
+        self.video_position_height = tk.StringVar(
+            value=str(session_settings.get('video_position', {}).get('height', 20))
+        )
+        self.video_position_opacity = tk.StringVar(
+            value=str(session_settings.get('video_position', {}).get('opacity', 0.5))
+        )
+        self.video_position_type = tk.StringVar(
+            value=session_settings.get('video_position', {}).get('position', 'center')
+        )
+        self.video_scale = tk.StringVar(
+            value=str(int(session_settings.get('video_position', {}).get('scale', 1.0) * 100))
+        )
         
-        self.top_bg = tk.BooleanVar(value=session_settings.get('top_bg', {}).get('enabled', False) if session_settings else False)
-        self.top_bg_height = tk.StringVar(value=str(session_settings.get('top_bg', {}).get('height', 15)) if session_settings else "15")
-        self.top_bg_opacity = tk.StringVar(value=str(session_settings.get('top_bg', {}).get('opacity', 0.5)) if session_settings else "0.5")
+        self.top_bg = tk.BooleanVar(
+            value=session_settings.get('top_bg', {}).get('enabled', False)
+        )
+        self.top_bg_height = tk.StringVar(
+            value=str(session_settings.get('top_bg', {}).get('height', 15))
+        )
+        self.top_bg_opacity = tk.StringVar(
+            value=str(session_settings.get('top_bg', {}).get('opacity', 0.5))
+        )
         
-        self.bottom_bg = tk.BooleanVar(value=session_settings.get('bottom_bg', {}).get('enabled', False) if session_settings else False)
-        self.bottom_bg_height = tk.StringVar(value=str(session_settings.get('bottom_bg', {}).get('height', 15)) if session_settings else "15")
-        self.bottom_bg_opacity = tk.StringVar(value=str(session_settings.get('bottom_bg', {}).get('opacity', 0.5)) if session_settings else "0.5")
+        self.bottom_bg = tk.BooleanVar(
+            value=session_settings.get('bottom_bg', {}).get('enabled', False)
+        )
+        self.bottom_bg_height = tk.StringVar(
+            value=str(session_settings.get('bottom_bg', {}).get('height', 15))
+        )
+        self.bottom_bg_opacity = tk.StringVar(
+            value=str(session_settings.get('bottom_bg', {}).get('opacity', 0.5))
+        )
         
-        self.icon_width = tk.StringVar(value=str(session_settings.get('icon', {}).get('width', 400)) if session_settings else "400")
-        self.icon_x_pos = tk.StringVar(value=session_settings.get('icon', {}).get('x_position', 'c') if session_settings else "c")
-        self.icon_y_pos = tk.StringVar(value=str(session_settings.get('icon', {}).get('y_position', 90)) if session_settings else "90")
-        
-        self.create_widgets()
-        self.result = None
+        self.icon_width = tk.StringVar(
+            value=str(session_settings.get('icon', {}).get('width', 400))
+        )
+        self.icon_x_pos = tk.StringVar(
+            value=session_settings.get('icon', {}).get('x_position', 'c')
+        )
+        self.icon_y_pos = tk.StringVar(
+            value=str(session_settings.get('icon', {}).get('y_position', 90))
+        )
+
+        self.text_overlays = session_settings.get('text_overlays', [])
+
         self.preview_callback = preview_callback
+        self.result = None
+
+        self.create_widgets()
 
     def create_widgets(self):
         notebook = ttk.Notebook(self.dialog)
         notebook.pack(expand=True, fill='both', padx=5, pady=5)
         
-        # Video Position Frame with updated controls
+        # Video Position
         vp_frame = ttk.Frame(notebook, padding="10")
         notebook.add(vp_frame, text='Video Position')
         
-        # Video positioning options
         ttk.Label(vp_frame, text="Video Position:").pack()
-        ttk.Radiobutton(vp_frame, text="Center", value="center", 
-                       variable=self.video_position_type).pack()
-        ttk.Radiobutton(vp_frame, text="Top", value="top", 
-                       variable=self.video_position_type).pack()
-        ttk.Radiobutton(vp_frame, text="Bottom", value="bottom", 
-                       variable=self.video_position_type).pack()
+        ttk.Radiobutton(vp_frame, text="Center", value="center", variable=self.video_position_type).pack()
+        ttk.Radiobutton(vp_frame, text="Top", value="top", variable=self.video_position_type).pack()
+        ttk.Radiobutton(vp_frame, text="Bottom", value="bottom", variable=self.video_position_type).pack()
         
         ttk.Label(vp_frame, text="Video Scale (50-100%):").pack()
         ttk.Entry(vp_frame, textvariable=self.video_scale).pack()
         
-        # Black background options
         ttk.Separator(vp_frame, orient='horizontal').pack(fill='x', pady=10)
         ttk.Label(vp_frame, text="Black Background:").pack()
-        ttk.Checkbutton(vp_frame, text="Enable Background", 
-                       variable=self.video_position).pack()
+        ttk.Checkbutton(vp_frame, text="Enable Background", variable=self.video_position).pack()
         ttk.Label(vp_frame, text="Background Height (10-50%):").pack()
         ttk.Entry(vp_frame, textvariable=self.video_position_height).pack()
         ttk.Label(vp_frame, text="Background Opacity (0.0-1.0):").pack()
         ttk.Entry(vp_frame, textvariable=self.video_position_opacity).pack()
         
-        # Top Background Frame with updated labels
+        # Top Background
         top_frame = ttk.Frame(notebook, padding="10")
         notebook.add(top_frame, text='Top Background')
         ttk.Checkbutton(top_frame, text="Enable Top Background", variable=self.top_bg).pack()
@@ -83,7 +457,7 @@ class CustomSettingsDialog:
         ttk.Label(top_frame, text="Background Opacity (0.0-1.0):").pack()
         ttk.Entry(top_frame, textvariable=self.top_bg_opacity).pack()
         
-        # Bottom Background Frame with updated labels
+        # Bottom Background
         bottom_frame = ttk.Frame(notebook, padding="10")
         notebook.add(bottom_frame, text='Bottom Background')
         ttk.Checkbutton(bottom_frame, text="Enable Bottom Background", variable=self.bottom_bg).pack()
@@ -92,23 +466,31 @@ class CustomSettingsDialog:
         ttk.Label(bottom_frame, text="Background Opacity (0.0-1.0):").pack()
         ttk.Entry(bottom_frame, textvariable=self.bottom_bg_opacity).pack()
         
-        # Icon Settings Frame with updated labels
+        # Icon Settings
         icon_frame = ttk.Frame(notebook, padding="10")
         notebook.add(icon_frame, text='Icon Settings')
         ttk.Label(icon_frame, text="Icon Width (100-1000px):").pack()
         ttk.Entry(icon_frame, textvariable=self.icon_width).pack()
-        ttk.Label(icon_frame, text="X Position (c=center, l=left, r=right, 0-100):").pack()
+        ttk.Label(icon_frame, text="X Pos (c=center, l=left, r=right, 0-100):").pack()
         ttk.Entry(icon_frame, textvariable=self.icon_x_pos).pack()
-        ttk.Label(icon_frame, text="Y Position (0-100%):").pack()
+        ttk.Label(icon_frame, text="Y Pos (0-100%):").pack()
         ttk.Entry(icon_frame, textvariable=self.icon_y_pos).pack()
-        
-        # Buttons
-        button_frame = ttk.Frame(self.dialog)
-        button_frame.pack(fill='x', padx=5, pady=5)
-        ttk.Button(button_frame, text="OK", command=self.ok).pack(side='right', padx=5)
-        ttk.Button(button_frame, text="Cancel", command=self.cancel).pack(side='right')
-        
-        # Add change callbacks to all settings
+
+        # Text Overlays
+        text_frame = ttk.Frame(notebook, padding="10")
+        notebook.add(text_frame, text="Text Overlays")
+        ttk.Label(text_frame, text="Manage multiple text overlays:").pack(anchor="w", pady=5)
+        btn_overlays = ttk.Button(text_frame, text="Open Overlays Manager", command=self.open_overlays_dialog)
+        btn_overlays.pack(pady=5, anchor="w")
+        ttk.Label(text_frame, text="Changes appear immediately in preview.").pack(anchor="w")
+
+        # Buttons at bottom
+        btn_frame = ttk.Frame(self.dialog)
+        btn_frame.pack(fill='x', padx=5, pady=5)
+        ttk.Button(btn_frame, text="OK", command=self.ok).pack(side='right', padx=5)
+        ttk.Button(btn_frame, text="Cancel", command=self.cancel).pack(side='right')
+
+        # Traces for real-time updates
         self.video_position.trace_add("write", self.on_setting_changed)
         self.video_position_height.trace_add("write", self.on_setting_changed)
         self.video_position_opacity.trace_add("write", self.on_setting_changed)
@@ -123,6 +505,11 @@ class CustomSettingsDialog:
         self.icon_width.trace_add("write", self.on_setting_changed)
         self.icon_x_pos.trace_add("write", self.on_setting_changed)
         self.icon_y_pos.trace_add("write", self.on_setting_changed)
+
+    def open_overlays_dialog(self):
+        def overlays_changed():
+            self.on_setting_changed()
+        TextOverlaysDialog(self.dialog, self.text_overlays, overlays_changed)
 
     def on_setting_changed(self, *args):
         try:
@@ -148,11 +535,12 @@ class CustomSettingsDialog:
                     'width': int(self.icon_width.get()),
                     'x_position': self.icon_x_pos.get(),
                     'y_position': float(self.icon_y_pos.get())
-                }
+                },
+                'text_overlays': self.text_overlays
             }
             self.preview_callback(settings)
-        except (ValueError, TypeError):
-            pass  # Ignore invalid values during typing
+        except Exception:
+            pass
 
     def ok(self):
         self.result = {
@@ -177,12 +565,14 @@ class CustomSettingsDialog:
                 'width': int(self.icon_width.get()),
                 'x_position': self.icon_x_pos.get(),
                 'y_position': float(self.icon_y_pos.get())
-            }
+            },
+            'text_overlays': self.text_overlays
         }
         self.dialog.destroy()
 
     def cancel(self):
         self.dialog.destroy()
+
 
 class PreviewPanel:
     def __init__(self, parent, settings_callback):
@@ -194,318 +584,312 @@ class PreviewPanel:
         self.settings_callback = settings_callback
         self.preview_image = None
         self.original_frame = None
-        self.current_settings = None
-        self.current_dimensions = (1080, 1920)  # Default dimensions
+        self.current_settings = {}
+        self.current_dimensions = (1080, 1920)
 
     def extract_random_frame(self, video_path):
         cap = cv2.VideoCapture(video_path)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        random_frame = random.randint(0, total_frames-1)
+        if total_frames <= 0:
+            return None
+        random_frame = random.randint(0, max(0, total_frames - 1))
         cap.set(cv2.CAP_PROP_POS_FRAMES, random_frame)
         ret, frame = cap.read()
         cap.release()
-        if ret:
+        if ret and frame is not None:
             self.original_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             return self.original_frame
         return None
 
-    def apply_settings_to_frame(self, frame, settings, dimensions):
-        if frame is None:
-            return None
-            
-        target_width, target_height = dimensions
-        current_height, current_width = frame.shape[:2]
-        
-        # Default scaling without any position adjustments
-        scale = min(target_width/current_width, target_height/current_height)
-        new_width = int(current_width * scale)
-        new_height = int(current_height * scale)
-        
-        # Resize frame
-        resized = cv2.resize(frame, (new_width, new_height))
-        
-        # Create canvas
-        canvas = np.zeros((target_height, target_width, 3), dtype=np.uint8)
-        
-        # Always center by default unless explicitly positioned
-        x_offset = (target_width - new_width) // 2
-        y_offset = (target_height - new_height) // 2
-        
-        # Only adjust position if video position is enabled and settings exist
-        if settings and 'video_position' in settings and settings['video_position'].get('enabled', False):
-            position = settings['video_position'].get('position', 'center')
-            scale_factor = settings['video_position'].get('scale', 1.0)
-            
-            # Recalculate size if scale is changed
-            if scale_factor != 1.0:
-                new_width = int(new_width * scale_factor)
-                new_height = int(new_height * scale_factor)
-                resized = cv2.resize(frame, (new_width, new_height))
-                x_offset = (target_width - new_width) // 2
-            
-            # Adjust vertical position
-            if position == 'top':
-                y_offset = 0
-            elif position == 'bottom':
-                y_offset = target_height - new_height
-                # Adjust for black background if enabled
-                if settings['video_position']['enabled']:
-                    bg_height = int(target_height * (settings['video_position']['height'] / 100))
-                    y_offset = target_height - new_height - bg_height
-        
-        # Place video on canvas
-        canvas[y_offset:y_offset+new_height, x_offset:x_offset+new_width] = resized
-        
-        # Apply effects only if explicitly enabled
-        if settings:
-            # Apply video position background
-            if settings['video_position']['enabled']:
-                height_percent = settings['video_position']['height']
-                opacity = settings['video_position']['opacity']
-                height_pixels = int(target_height * (height_percent / 100))
-                overlay = canvas.copy()
-                cv2.rectangle(overlay, (0, target_height-height_pixels), 
-                            (target_width, target_height), (0,0,0), -1)
-                canvas = cv2.addWeighted(overlay, opacity, canvas, 1-opacity, 0)
-            
-            # Apply top background
-            if settings['top_bg']['enabled']:
-                height_percent = settings['top_bg']['height']
-                opacity = settings['top_bg']['opacity']
-                height_pixels = int(target_height * (height_percent / 100))
-                overlay = canvas.copy()
-                cv2.rectangle(overlay, (0, 0), (target_width, height_pixels), 
-                            (0,0,0), -1)
-                canvas = cv2.addWeighted(overlay, opacity, canvas, 1-opacity, 0)
-            
-            # Apply bottom background
-            if settings['bottom_bg']['enabled']:
-                height_percent = settings['bottom_bg']['height']
-                opacity = settings['bottom_bg']['opacity']
-                height_pixels = int(target_height * (height_percent / 100))
-                overlay = canvas.copy()
-                cv2.rectangle(overlay, (0, target_height-height_pixels), 
-                            (target_width, target_height), (0,0,0), -1)
-                canvas = cv2.addWeighted(overlay, opacity, canvas, 1-opacity, 0)
-                
-            # Apply icon if available
-            if os.path.exists("assets/fullicon.png"):
-                try:
-                    # Read icon with alpha channel
-                    icon = cv2.imread("assets/fullicon.png", cv2.IMREAD_UNCHANGED)
-                    if icon is not None and icon.shape[2] == 4:  # Ensure alpha channel exists
-                        # Calculate icon dimensions
-                        icon_width = min(settings['icon']['width'], target_width)
-                        aspect_ratio = icon.shape[0] / icon.shape[1]
-                        icon_height = int(icon_width * aspect_ratio)
-                        
-                        # Ensure icon fits within frame
-                        if icon_height > target_height:
-                            icon_height = target_height
-                            icon_width = int(icon_height / aspect_ratio)
-                            
-                        # Resize icon
-                        icon = cv2.resize(icon, (icon_width, icon_height))
-                        
-                        # Calculate position
-                        x_pos = settings['icon']['x_position']
-                        if x_pos == 'c':
-                            x = (target_width - icon_width) // 2
-                        elif x_pos == 'l':
-                            x = 10
-                        elif x_pos == 'r':
-                            x = target_width - icon_width - 10
-                        else:
-                            x = int(target_width * (float(x_pos) / 100))
-                            
-                        y = int(target_height * (settings['icon']['y_position'] / 100))
-                        
-                        # Ensure coordinates are within bounds
-                        x = max(0, min(x, target_width - icon_width))
-                        y = max(0, min(y, target_height - icon_height))
-                        
-                        # Create mask from alpha channel
-                        alpha = icon[:, :, 3] / 255.0
-                        alpha = np.expand_dims(alpha, axis=-1)
-                        
-                        # Extract BGR channels
-                        icon_bgr = icon[:, :, :3]
-                        
-                        # Get region of interest
-                        roi = canvas[y:y+icon_height, x:x+icon_width]
-                        
-                        # Ensure shapes match
-                        if roi.shape[:2] == icon_bgr.shape[:2]:
-                            # Blend using alpha mask
-                            blended = (1 - alpha) * roi + alpha * icon_bgr
-                            canvas[y:y+icon_height, x:x+icon_width] = blended
-                        
-                except Exception as e:
-                    print(f"Error applying icon: {str(e)}")
-        
-        return canvas
-
     def update_preview(self, video_path=None, settings=None, dimensions=None):
+        if settings is None:
+            settings = {}
+        self.current_settings.update(settings)
+
         if video_path and video_path != self.current_video:
             self.current_video = video_path
             self.extract_random_frame(video_path)
-            
-        if settings:
-            self.current_settings = settings
-            
+
         if dimensions:
             self.current_dimensions = dimensions
-            
+
         if self.original_frame is not None:
             frame = self.apply_settings_to_frame(
                 self.original_frame.copy(),
                 self.current_settings,
                 self.current_dimensions
             )
-            
             if frame is not None:
-                # Resize for display
-                display_height = 600
-                display_width = 400
-                scale = min(display_width/frame.shape[1], display_height/frame.shape[0])
-                display_size = (int(frame.shape[1]*scale), int(frame.shape[0]*scale))
+                disp_w, disp_h = 400, 600
+                scale = min(disp_w / frame.shape[1], disp_h / frame.shape[0])
+                display_size = (int(frame.shape[1] * scale), int(frame.shape[0] * scale))
                 frame = cv2.resize(frame, display_size)
-                
-                # Convert to PhotoImage
+
                 image = Image.fromarray(frame)
                 self.preview_image = ImageTk.PhotoImage(image)
-                
-                # Update canvas
                 self.canvas.delete("all")
                 self.canvas.create_image(
-                    display_width//2, 
-                    display_height//2, 
-                    anchor='center', 
+                    disp_w // 2,
+                    disp_h // 2,
+                    anchor='center',
                     image=self.preview_image
                 )
 
+    def apply_settings_to_frame(self, frame, settings, dimensions):
+        if frame is None:
+            return None
+
+        target_w, target_h = dimensions
+        h, w = frame.shape[:2]
+        scale = min(target_w / w, target_h / h)
+        new_w = int(w * scale)
+        new_h = int(h * scale)
+        resized = cv2.resize(frame, (new_w, new_h))
+
+        canvas = np.zeros((target_h, target_w, 3), dtype=np.uint8)
+        x_offset = (target_w - new_w) // 2
+        y_offset = (target_h - new_h) // 2
+
+        video_pos = settings.get("video_position", {})
+        if video_pos.get("enabled", False):
+            pos_type = video_pos.get("position", "center")
+            scale_factor = video_pos.get("scale", 1.0)
+
+            if scale_factor != 1.0:
+                new_w = int(new_w * scale_factor)
+                new_h = int(new_h * scale_factor)
+                resized = cv2.resize(frame, (new_w, new_h))
+
+            if pos_type == "top":
+                x_offset = (target_w - new_w) // 2
+                y_offset = 0
+            elif pos_type == "bottom":
+                x_offset = (target_w - new_w) // 2
+                bg_h = int(target_h * (video_pos.get("height", 0) / 100.0))
+                y_offset = target_h - new_h - bg_h
+            else:
+                x_offset = (target_w - new_w) // 2
+                y_offset = (target_h - new_h) // 2
+
+        canvas[y_offset : y_offset + new_h, x_offset : x_offset + new_w] = resized
+
+        if video_pos.get("enabled", False):
+            height_percent = video_pos.get("height", 20)
+            opacity = video_pos.get("opacity", 0.5)
+            hpix = int(target_h * (height_percent / 100))
+            overlay = canvas.copy()
+            cv2.rectangle(overlay, (0, target_h - hpix), (target_w, target_h), (0,0,0), -1)
+            canvas = cv2.addWeighted(overlay, opacity, canvas, 1 - opacity, 0)
+
+        top_bg = settings.get("top_bg", {})
+        if top_bg.get("enabled", False):
+            hp = top_bg.get("height", 15)
+            op = top_bg.get("opacity", 0.5)
+            top_pix = int(target_h * (hp / 100))
+            overlay = canvas.copy()
+            cv2.rectangle(overlay, (0, 0), (target_w, top_pix), (0,0,0), -1)
+            canvas = cv2.addWeighted(overlay, op, canvas, 1 - op, 0)
+
+        bottom_bg = settings.get("bottom_bg", {})
+        if bottom_bg.get("enabled", False):
+            hp = bottom_bg.get("height", 15)
+            op = bottom_bg.get("opacity", 0.5)
+            bot_pix = int(target_h * (hp / 100))
+            overlay = canvas.copy()
+            cv2.rectangle(overlay, (0, target_h - bot_pix), (target_w, target_h), (0,0,0), -1)
+            canvas = cv2.addWeighted(overlay, op, canvas, 1 - op, 0)
+
+        icon_params = settings.get("icon", {})
+        if os.path.exists("assets/fullicon.png"):
+            try:
+                icon_img = cv2.imread("assets/fullicon.png", cv2.IMREAD_UNCHANGED)
+                if icon_img is not None and icon_img.shape[2] == 4:
+                    iw = icon_params.get("width", 400)
+                    iw = min(iw, target_w)
+                    oh, ow = icon_img.shape[:2]
+                    ratio = oh / ow
+                    ih = int(iw * ratio)
+                    if ih > target_h:
+                        ih = target_h
+                        iw = int(ih / ratio)
+                    icon_img = cv2.resize(icon_img, (iw, ih))
+                    x_pos = icon_params.get("x_position", "c")
+                    y_pos = float(icon_params.get("y_position", 90.0))
+
+                    if x_pos == 'c':
+                        x = (target_w - iw) // 2
+                    elif x_pos == 'l':
+                        x = 10
+                    elif x_pos == 'r':
+                        x = target_w - iw - 10
+                    else:
+                        x = int(target_w * (float(x_pos) / 100.0))
+
+                    y = int(target_h * (y_pos / 100.0))
+                    x = max(0, min(x, target_w - iw))
+                    y = max(0, min(y, target_h - ih))
+
+                    alpha = icon_img[:, :, 3] / 255.0
+                    alpha = np.dstack([alpha, alpha, alpha])
+                    bgr = icon_img[:, :, :3]
+
+                    roi = canvas[y:y+ih, x:x+iw]
+                    if roi.shape[:2] == bgr.shape[:2]:
+                        blended = roi * (1 - alpha) + bgr * alpha
+                        canvas[y:y+ih, x:x+iw] = blended
+            except Exception as e:
+                print(f"Error applying icon: {str(e)}")
+
+        pil_image = Image.fromarray(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB))
+        draw = ImageDraw.Draw(pil_image)
+
+        for overlay in settings.get("text_overlays", []):
+            self.draw_text_overlay(draw, overlay, target_w, target_h)
+
+        final_canvas = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+        return final_canvas
+
+    def draw_text_overlay(self, draw, overlay, img_w, img_h):
+        text = overlay.get("text", "Text")
+        font_name = overlay.get("font", "Arial")
+        font_size = overlay.get("size", 40)
+        color_hex = overlay.get("color", "#FFFFFF")
+        bg_hex = overlay.get("bg_color", "#00000000")
+        bg_opacity = overlay.get("bg_opacity", 0.0)
+        x_pct = overlay.get("x", 50.0)
+        y_pct = overlay.get("y", 50.0)
+        outline = overlay.get("outline", False)
+        shadow = overlay.get("shadow", False)
+
+        try:
+            font = ImageFont.truetype(font_name, font_size)
+        except:
+            font = ImageFont.load_default()
+
+        text_color = ImageColor_getrgba(color_hex)
+
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
+
+        x = int(img_w * (x_pct / 100.0))
+        y = int(img_h * (y_pct / 100.0))
+        x -= text_w // 2
+        y -= text_h // 2
+
+        if bg_opacity > 0.0:
+            bg_rgba = ImageColor_getrgba(bg_hex)
+            overlay_img = Image.new("RGBA", (text_w, text_h), (0,0,0,0))
+            bg_layer = Image.new("RGBA", (text_w, text_h), bg_rgba)
+            bg_layer.putalpha(int(bg_opacity * 255))
+            overlay_img.alpha_composite(bg_layer, (0,0))
+            draw.im.paste(overlay_img, (x, y), overlay_img)
+
+        if shadow:
+            shadow_offset = 2
+            shadow_color = (0, 0, 0, 128)
+            draw.text((x + shadow_offset, y + shadow_offset), text, font=font, fill=shadow_color)
+
+        if outline:
+            for ox, oy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                draw.text((x + ox, y + oy), text, font=font, fill=(0,0,0,255))
+
+        draw.text((x, y), text, font=font, fill=text_color)
+
     def get_current_settings(self):
-        """Return the current settings being used in the preview"""
         return self.current_settings
+
 
 class VideoEditorGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Video Editor")
-        self.root.geometry("1200x800")  # Increased window size
+        self.root.geometry("1200x800")
         
-        # Variables
         self.source_folder = tk.StringVar()
         self.platform = tk.StringVar(value="youtube_shorts")
         self.use_defaults = tk.BooleanVar(value=True)
-        self.aspect_ratio = tk.StringVar(value="2")  # Default to portrait
+        self.aspect_ratio = tk.StringVar(value="2")
         self.progress = tk.DoubleVar(value=0)
         self.processing = False
         self.selected_video = tk.StringVar()
-        self.session_settings = None  # Add this line to store session settings
+        self.session_settings = None
         self.output_folder = tk.StringVar()
-        self.selected_videos = set()  # Track selected videos
-        self.current_preview_video = None  # Add this line
+        self.selected_videos = set()
+        self.current_preview_video = None
         
-        # Load config
         self.config = load_config()
         
         self.create_gui()
         
-        # Add queue for thread-safe updates
         self.update_queue = queue.Queue()
-        
-        # Set up logging
         self.setup_logging()
-        
-        # Setup periodic queue check
         self.check_queue()
         
         self.aspect_ratio.trace_add("write", self.on_aspect_ratio_changed)
 
     def setup_logging(self):
-        log_dir = "logs"
-        os.makedirs(log_dir, exist_ok=True)
-        log_file = os.path.join(log_dir, f"video_editor_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
-        
-        # Configure logging
+        os.makedirs("logs", exist_ok=True)
+        log_file = os.path.join("logs", f"video_editor_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler(log_file),
+                logging.FileHandler(log_file, encoding='utf-8', errors='replace'),
                 logging.StreamHandler()
             ]
         )
         self.logger = logging.getLogger(__name__)
 
     def create_gui(self):
-        # Main container with two columns
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
-        # Left column for controls
         controls_frame = ttk.Frame(main_frame)
         controls_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5)
         
-        # Right column for preview
         self.preview_panel = PreviewPanel(main_frame, self.get_custom_settings)
         self.preview_panel.frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5)
         
-        # Source folder selection
         ttk.Label(controls_frame, text="Source Folder:").grid(row=0, column=0, sticky=tk.W)
         ttk.Entry(controls_frame, textvariable=self.source_folder, width=50).grid(row=0, column=1, padx=5)
         ttk.Button(controls_frame, text="Browse", command=self.browse_source).grid(row=0, column=2)
-        
-        # Add output folder selection
+
         ttk.Label(controls_frame, text="Output Folder (optional):").grid(row=1, column=0, sticky=tk.W)
         ttk.Entry(controls_frame, textvariable=self.output_folder, width=50).grid(row=1, column=1, padx=5)
         ttk.Button(controls_frame, text="Browse", command=self.browse_output).grid(row=1, column=2)
 
-        # Replace video selection area with improved version
         video_selection_frame = ttk.LabelFrame(controls_frame, text="Video Selection", padding="5")
         video_selection_frame.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
 
-        # Add scrollbar to listbox
         list_frame = ttk.Frame(video_selection_frame)
         list_frame.pack(fill='both', expand=True)
         
         scrollbar = ttk.Scrollbar(list_frame)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        self.video_listbox = tk.Listbox(list_frame, selectmode=tk.MULTIPLE, height=6, 
-                                       yscrollcommand=scrollbar.set)
+        self.video_listbox = tk.Listbox(list_frame, selectmode=tk.MULTIPLE, height=6, yscrollcommand=scrollbar.set)
         self.video_listbox.pack(side=tk.LEFT, fill='both', expand=True)
         scrollbar.config(command=self.video_listbox.yview)
         
-        # Bind listbox selection event
         self.video_listbox.bind('<<ListboxSelect>>', self.on_listbox_select)
-        
-        # Video controls in a separate frame
+
         video_controls = ttk.Frame(video_selection_frame)
         video_controls.pack(fill='x', pady=5)
-        
-        # Left side buttons
+
         left_buttons = ttk.Frame(video_controls)
         left_buttons.pack(side=tk.LEFT, fill='x', expand=True)
         
-        ttk.Button(left_buttons, text="Select All", 
-                  command=self.select_all_videos).pack(side=tk.LEFT, padx=2)
-        ttk.Button(left_buttons, text="Deselect All", 
-                  command=self.deselect_all_videos).pack(side=tk.LEFT, padx=2)
-        ttk.Button(left_buttons, text="Remove Selected", 
-                  command=self.remove_selected_videos).pack(side=tk.LEFT, padx=2)
+        ttk.Button(left_buttons, text="Select All", command=self.select_all_videos).pack(side=tk.LEFT, padx=2)
+        ttk.Button(left_buttons, text="Deselect All", command=self.deselect_all_videos).pack(side=tk.LEFT, padx=2)
+        ttk.Button(left_buttons, text="Remove Selected", command=self.remove_selected_videos).pack(side=tk.LEFT, padx=2)
         
-        # Right side buttons
         right_buttons = ttk.Frame(video_controls)
         right_buttons.pack(side=tk.RIGHT)
         
-        ttk.Button(right_buttons, text="Settings", 
-                  command=self.show_settings).pack(side=tk.RIGHT, padx=2)
-        ttk.Button(right_buttons, text="Preview Selected", 
-                  command=self.preview_selected).pack(side=tk.RIGHT, padx=2)
+        ttk.Button(right_buttons, text="Settings", command=self.show_settings).pack(side=tk.RIGHT, padx=2)
+        ttk.Button(right_buttons, text="Preview Selected", command=self.preview_selected).pack(side=tk.RIGHT, padx=2)
 
-        # Platform selection
         ttk.Label(controls_frame, text="Platform:").grid(row=4, column=0, sticky=tk.W, pady=10)
         platform_frame = ttk.Frame(controls_frame)
         platform_frame.grid(row=4, column=1, sticky=tk.W)
@@ -516,12 +900,9 @@ class VideoEditorGUI:
             ("TikTok", "tiktok"),
             ("YouTube Long", "youtube_long")
         ]
-        
-        for i, (text, value) in enumerate(platforms):
-            ttk.Radiobutton(platform_frame, text=text, value=value, 
-                          variable=self.platform).grid(row=0, column=i, padx=5)
-        
-        # Aspect ratio selection
+        for i, (txt, val) in enumerate(platforms):
+            ttk.Radiobutton(platform_frame, text=txt, value=val, variable=self.platform).grid(row=0, column=i, padx=5)
+
         ttk.Label(controls_frame, text="Aspect Ratio:").grid(row=5, column=0, sticky=tk.W, pady=10)
         ratio_frame = ttk.Frame(controls_frame)
         ratio_frame.grid(row=5, column=1, sticky=tk.W)
@@ -532,42 +913,32 @@ class VideoEditorGUI:
             ("Landscape (16:9)", "3"),
             ("Custom", "4")
         ]
-        
-        for i, (text, value) in enumerate(ratios):
-            ttk.Radiobutton(ratio_frame, text=text, value=value, 
-                          variable=self.aspect_ratio).grid(row=0, column=i, padx=5)
-        
-        # Use defaults checkbox
+        for i, (txt, val) in enumerate(ratios):
+            ttk.Radiobutton(ratio_frame, text=txt, value=val, variable=self.aspect_ratio).grid(row=0, column=i, padx=5)
+
         if self.config:
-            ttk.Checkbutton(controls_frame, text="Use defaults from config.yaml", 
-                          variable=self.use_defaults).grid(row=6, column=0, 
-                          columnspan=2, sticky=tk.W, pady=10)
-        
-        # Advanced settings button
-        ttk.Button(controls_frame, text="Advanced Settings", 
-                  command=self.show_advanced_settings).grid(row=7, column=0, 
-                  columnspan=2, pady=10)
-        
-        # Progress bar
-        self.progress_bar = ttk.Progressbar(controls_frame, length=400, 
-                                          mode='determinate', variable=self.progress)
+            ttk.Checkbutton(controls_frame, text="Use defaults from config.yaml", variable=self.use_defaults).grid(
+                row=6, column=0, columnspan=2, sticky=tk.W, pady=10
+            )
+
+        ttk.Button(controls_frame, text="Advanced Settings", command=self.show_advanced_settings).grid(
+            row=7, column=0, columnspan=2, pady=10
+        )
+
+        self.progress_bar = ttk.Progressbar(controls_frame, length=400, mode='determinate', variable=self.progress)
         self.progress_bar.grid(row=8, column=0, columnspan=3, pady=10, sticky=(tk.W, tk.E))
         
-        # Status label
         self.status_label = ttk.Label(controls_frame, text="Ready")
         self.status_label.grid(row=9, column=0, columnspan=3)
-        
-        # Process button
-        self.process_button = ttk.Button(controls_frame, text="Process Videos", 
-                                       command=self.start_processing)
+
+        self.process_button = ttk.Button(controls_frame, text="Process Videos", command=self.start_processing)
         self.process_button.grid(row=10, column=0, columnspan=3, pady=10)
         
-        # Process selected video button
-        ttk.Button(controls_frame, text="Process Selected Video", 
-                  command=self.process_selected_video).grid(row=11, column=1, pady=10)
+        ttk.Button(controls_frame, text="Process Selected Video", command=self.process_selected_video).grid(
+            row=11, column=1, pady=10
+        )
 
-        # Add log display
-        log_frame = ttk.LabelFrame(controls_frame, text="Logs", padding="5")
+        log_frame = ttk.LabelFrame(controls_frame, text="Logs", padding=5)
         log_frame.grid(row=12, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
         
         self.log_display = scrolledtext.ScrolledText(log_frame, height=10, width=60)
@@ -585,58 +956,32 @@ class VideoEditorGUI:
             self.update_video_list()
 
     def update_video_list(self):
-        """Update the video listbox with available videos"""
         self.video_listbox.delete(0, tk.END)
         folder = self.source_folder.get()
         if folder:
-            video_files = [f for f in os.listdir(folder) 
-                          if f.lower().endswith((".mp4", ".mov"))]
-            for video in sorted(video_files):  # Sort the files alphabetically
-                self.video_listbox.insert(tk.END, video)
-            
-            # Select and preview the first video if available
+            video_files = sorted(
+                f for f in os.listdir(folder) if f.lower().endswith((".mp4", ".mov"))
+            )
+            for vf in video_files:
+                self.video_listbox.insert(tk.END, vf)
             if video_files:
                 self.video_listbox.select_set(0)
                 self.preview_selected()
 
     def select_all_videos(self):
-        """Select all videos in the listbox"""
         self.video_listbox.select_set(0, tk.END)
 
     def deselect_all_videos(self):
-        """Deselect all videos in the listbox"""
         self.video_listbox.selection_clear(0, tk.END)
 
     def remove_selected_videos(self):
-        """Remove selected videos from the listbox"""
-        selected = self.video_listbox.curselection()
-        for index in reversed(selected):
-            self.video_listbox.delete(index)
-
-    def process_selected_video(self):
-        """Process only the currently selected video"""
-        selected = self.video_listbox.curselection()
-        if not selected:
-            messagebox.showerror("Error", "Please select a video to process")
-            return
-            
-        if self.processing:
-            return
-            
-        self.processing = True
-        self.process_button.config(state=tk.DISABLED)
-        self.status_label.config(text="Processing video...")
-        
-        # Start processing in a separate thread
-        thread = threading.Thread(target=lambda: self.process_videos(single_video=True))
-        thread.daemon = True
-        thread.start()
+        sel = self.video_listbox.curselection()
+        for idx in reversed(sel):
+            self.video_listbox.delete(idx)
 
     def on_listbox_select(self, event):
-        """Handle listbox selection event"""
         selection = self.video_listbox.curselection()
         if selection:
-            # Update preview with the last selected video
             selected_video = self.video_listbox.get(selection[-1])
             video_path = os.path.join(self.source_folder.get(), selected_video)
             if video_path != self.current_preview_video:
@@ -644,64 +989,69 @@ class VideoEditorGUI:
                 self.preview_panel.update_preview(video_path=video_path)
 
     def preview_selected(self):
-        """Preview the currently selected video"""
-        selection = self.video_listbox.curselection()
-        if selection:
-            selected_video = self.video_listbox.get(selection[-1])
+        sel = self.video_listbox.curselection()
+        if sel:
+            selected_video = self.video_listbox.get(sel[-1])
             video_path = os.path.join(self.source_folder.get(), selected_video)
             if video_path != self.current_preview_video:
                 self.current_preview_video = video_path
                 self.preview_panel.update_preview(video_path=video_path)
 
     def show_settings(self):
-        dialog = CustomSettingsDialog(self.root, 
-                                    lambda s: self.preview_panel.update_preview(settings=s),
-                                    self.session_settings)  # Pass current session settings
+        dialog = CustomSettingsDialog(
+            self.root,
+            lambda s: self.preview_panel.update_preview(settings=s),
+            self.session_settings if self.session_settings else {}
+        )
         self.root.wait_window(dialog.dialog)
         if dialog.result:
-            self.session_settings = dialog.result  # Store the settings for future use
+            self.session_settings = dialog.result
             return dialog.result
         return None
 
     def show_advanced_settings(self):
-        settings_window = tk.Toplevel(self.root)
-        settings_window.title("Advanced Settings")
-        settings_window.geometry("400x500")
-        
-        # Add advanced settings controls here
-        # (black background, icon settings, etc.)
-        # This is a placeholder for the actual implementation
-        ttk.Label(settings_window, text="Advanced settings coming soon...").pack(pady=20)
-        
-    def update_progress(self, value):
-        self.progress.set(value)
-        self.root.update_idletasks()
-        
-    def process_complete(self):
-        self.processing = False
-        self.process_button.config(state=tk.NORMAL)
-        self.status_label.config(text="Processing complete!")
-        messagebox.showinfo("Complete", "Video processing has finished!")
-        
-    def start_processing(self):
-        if not self.source_folder.get():
-            messagebox.showerror("Error", "Please select a source folder")
+        win = tk.Toplevel(self.root)
+        win.title("Advanced Settings")
+        win.geometry("400x500")
+        ttk.Label(
+            win,
+            text=(
+                "Here you could add advanced FFmpeg flags,\n"
+                "GPU usage settings, or other advanced features.\n"
+                "This is just a placeholder."
+            )
+        ).pack(pady=20)
+
+    def process_selected_video(self):
+        sel = self.video_listbox.curselection()
+        if not sel:
+            messagebox.showerror("Error", "No video selected!")
             return
-            
         if self.processing:
             return
-            
+
+        self.processing = True
+        self.process_button.config(state=tk.DISABLED)
+        self.status_label.config(text="Processing video...")
+        thread = threading.Thread(target=lambda: self.process_videos(single_video=True))
+        thread.daemon = True
+        thread.start()
+
+    def start_processing(self):
+        if not self.source_folder.get():
+            messagebox.showerror("Error", "Select a source folder first.")
+            return
+        if self.processing:
+            return
+
         self.processing = True
         self.process_button.config(state=tk.DISABLED)
         self.status_label.config(text="Processing videos...")
-        
-        # Start processing in a separate thread
         thread = threading.Thread(target=self.process_videos)
         thread.daemon = True
         thread.start()
-        
+
     def check_queue(self):
-        """Check for updates from the processing thread"""
         try:
             while True:
                 update_type, value = self.update_queue.get_nowait()
@@ -717,42 +1067,49 @@ class VideoEditorGUI:
         finally:
             self.root.after(100, self.check_queue)
 
+    def process_complete(self):
+        self.processing = False
+        self.process_button.config(state=tk.NORMAL)
+        self.status_label.config(text="Processing complete!")
+        messagebox.showinfo("Complete", "Video processing is finished.")
+
     def get_custom_settings(self):
-        dialog = CustomSettingsDialog(self.root, 
-                                    lambda s: self.preview_panel.update_preview(settings=s))
+        dialog = CustomSettingsDialog(self.root, lambda s: self.preview_panel.update_preview(settings=s))
         self.root.wait_window(dialog.dialog)
         return dialog.result
 
     def on_aspect_ratio_changed(self, *args):
-        ratio_dimensions = {
+        ratio_dims = {
             "1": (1080, 1080),
             "2": (1080, 1920),
             "3": (1920, 1080),
             "4": (1080, 1920)
         }
-        dimensions = ratio_dimensions[self.aspect_ratio.get()]
-        self.preview_panel.update_preview(dimensions=dimensions)
+        dims = ratio_dims[self.aspect_ratio.get()]
+        self.preview_panel.update_preview(dimensions=dims)
 
     def process_videos(self, single_video=False):
         try:
             platform_defaults = get_platform_defaults(self.config, self.platform.get())
-            
             if self.use_defaults.get() and self.config:
                 video_position_params, top_bg_params, black_bg_params, icon_params = \
                     get_parameters_from_config(self.config, platform_defaults)
+                text_overlays = []
+                if self.session_settings and 'text_overlays' in self.session_settings:
+                    text_overlays = self.session_settings['text_overlays']
             else:
-                # Use the current settings from preview panel
                 settings = self.preview_panel.get_current_settings()
                 if not settings:
-                    messagebox.showerror("Error", "Please configure settings first")
+                    messagebox.showerror("Error", "Please configure settings first.")
                     self.update_queue.put(("complete", None))
                     return
-                
-                # Convert settings to the correct parameter format with proper opacity values
+
+                text_overlays = settings.get("text_overlays", [])
+
                 if settings['video_position']['enabled']:
                     video_position_params = {
                         'bottom_height_percent': float(settings['video_position']['height']),
-                        'opacity': min(1.0, max(0.0, float(settings['video_position']['opacity'])))  # Ensure 0-1 range
+                        'opacity': min(1.0, max(0.0, float(settings['video_position']['opacity'])))
                     }
                 else:
                     video_position_params = None
@@ -760,7 +1117,7 @@ class VideoEditorGUI:
                 if settings['top_bg']['enabled']:
                     top_bg_params = {
                         'height_percent': float(settings['top_bg']['height']),
-                        'opacity': min(1.0, max(0.0, float(settings['top_bg']['opacity'])))  # Ensure 0-1 range
+                        'opacity': min(1.0, max(0.0, float(settings['top_bg']['opacity'])))
                     }
                 else:
                     top_bg_params = None
@@ -768,97 +1125,109 @@ class VideoEditorGUI:
                 if settings['bottom_bg']['enabled']:
                     black_bg_params = {
                         'height_percent': float(settings['bottom_bg']['height']),
-                        'opacity': min(1.0, max(0.0, float(settings['bottom_bg']['opacity'])))  # Ensure 0-1 range
+                        'opacity': min(1.0, max(0.0, float(settings['bottom_bg']['opacity'])))
                     }
                 else:
                     black_bg_params = None
 
-                # Icon params
                 icon_params = {
                     'width': int(settings['icon']['width']),
                     'x_position': settings['icon']['x_position'],
-                    'y_position': min(100.0, max(0.0, float(settings['icon']['y_position'])))  # Ensure 0-100 range
+                    'y_position': min(100.0, max(0.0, float(settings['icon']['y_position'])))
                 }
 
-            # Log the parameters for debugging
-            self.logger.info(f"Processing with parameters:")
-            self.logger.info(f"Video position: {video_position_params}")
-            self.logger.info(f"Top background: {top_bg_params}")
-            self.logger.info(f"Bottom background: {black_bg_params}")
-            self.logger.info(f"Icon: {icon_params}")
+            self.logger.info("Processing with parameters:")
+            self.logger.info(f"video_position={video_position_params}, top_bg={top_bg_params}, bottom_bg={black_bg_params}, icon={icon_params}, text_overlays={text_overlays}")
 
-            # Set target dimensions based on aspect ratio
-            ratio_dimensions = {
+            ratio_dims = {
                 "1": (1080, 1080),
                 "2": (1080, 1920),
                 "3": (1920, 1080),
-                "4": (1080, 1920)  # Custom - using default portrait for now
+                "4": (1080, 1920)
             }
-            target_dimensions = ratio_dimensions[self.aspect_ratio.get()]
-            
-            # Process videos
+            target_dimensions = ratio_dims[self.aspect_ratio.get()]
+
             source_folder = self.source_folder.get()
-            
-            # Use custom output folder if specified
             if self.output_folder.get():
                 output_folder = self.output_folder.get()
             else:
                 script_dir = os.path.dirname(os.path.abspath(__file__))
                 output_folder = os.path.join(script_dir, "ai.waverider", self.platform.get())
-            
             os.makedirs(output_folder, exist_ok=True)
-            
+
             brand_icon = "assets/fullicon.png"
             if not os.path.isfile(brand_icon):
                 raise FileNotFoundError(f"Brand icon not found at '{brand_icon}'")
-            
-            # Get list of videos to process
+
             if single_video:
-                selected = self.video_listbox.curselection()
-                if not selected:
+                sel = self.video_listbox.curselection()
+                if not sel:
                     raise ValueError("No video selected")
-                video_files = [self.video_listbox.get(selected[-1])]
+                video_files = [self.video_listbox.get(sel[-1])]
             else:
-                selected = self.video_listbox.curselection()
-                if not selected:
+                sel = self.video_listbox.curselection()
+                if not sel:
                     video_files = [self.video_listbox.get(idx) for idx in range(self.video_listbox.size())]
                 else:
-                    video_files = [self.video_listbox.get(idx) for idx in selected]
-            
-            for i, video_file in enumerate(video_files):
-                input_path = os.path.join(source_folder, video_file)
-                output_path = os.path.join(output_folder, f"processed_{video_file}")
-                
-                # Process single video
-                process_video((input_path, brand_icon, output_path, target_dimensions,
-                             black_bg_params, video_position_params, top_bg_params, 
-                             icon_params))
-                
-                # Update progress through queue
+                    video_files = [self.video_listbox.get(idx) for idx in sel]
+
+            for i, vf in enumerate(video_files):
+                input_path = os.path.join(source_folder, vf)
+                output_path = os.path.join(output_folder, f"processed_{vf}")
+
+                process_video((
+                    input_path,
+                    brand_icon,
+                    output_path,
+                    target_dimensions,
+                    black_bg_params,
+                    video_position_params,
+                    top_bg_params,
+                    icon_params,
+                    text_overlays  # 8th argument
+                ))
+
                 progress = (i + 1) / len(video_files) * 100
                 self.update_queue.put(("progress", progress))
-                self.update_queue.put(("log", f"Processed: {video_file}"))
-                
+                self.update_queue.put(("log", f"Processed: {vf}"))
+
             self.update_queue.put(("complete", None))
-            
+
         except Exception as e:
             self.logger.error(f"Error during processing: {str(e)}")
             self.update_queue.put(("log", f"Error: {str(e)}"))
             self.update_queue.put(("complete", None))
 
+
 def process_video(video_args):
     """
-    Process a single video with proper UTF-8 encoding handling.
+    Calls FFmpeg with a filter_complex that scales main video, scales icon, and overlays icon at (10,10).
+    We've removed the [outv] label to avoid 'unconnected output' errors.
     """
-    input_path, brand_icon, output_path, target_dimensions, black_bg_params, \
-    video_position_params, top_bg_params, icon_params = video_args
-    
+    (
+        input_path,
+        brand_icon,
+        output_path,
+        target_dimensions,
+        black_bg_params,
+        video_position_params,
+        top_bg_params,
+        icon_params,
+        text_overlays
+    ) = video_args
+
     filter_complex = generate_filter_complex(
-        input_path, brand_icon, target_dimensions, black_bg_params,
-        video_position_params, top_bg_params, icon_params
+        input_path,
+        brand_icon,
+        target_dimensions,
+        black_bg_params,
+        video_position_params,
+        top_bg_params,
+        icon_params,
+        text_overlays
     )
 
-    command = [
+    cmd = [
         "ffmpeg",
         "-i", input_path,
         "-i", brand_icon,
@@ -870,37 +1239,26 @@ def process_video(video_args):
         "-y",
         output_path
     ]
-
     try:
-        # Add encoding parameters and capture output properly
-        process = subprocess.Popen(
-            command,
+        proc = subprocess.Popen(
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            universal_newlines=True,  # This enables text mode with universal newlines
-            encoding='utf-8',         # Specify UTF-8 encoding
-            errors='replace'          # Replace invalid characters instead of failing
+            universal_newlines=True,
+            encoding='utf-8',
+            errors='replace'
         )
-        
-        # Wait for the process to complete and get output
-        stdout, stderr = process.communicate()
-        
-        if process.returncode != 0:
-            raise subprocess.CalledProcessError(
-                process.returncode, 
-                command, 
-                output=stdout, 
-                stderr=stderr
-            )
-            
+        stdout, stderr = proc.communicate()
+        if proc.returncode != 0:
+            raise subprocess.CalledProcessError(proc.returncode, cmd, output=stdout, stderr=stderr)
         return output_path
-        
     except subprocess.CalledProcessError as e:
         print(f"[ERROR] FFmpeg failed for {input_path}:\n{e.stderr}")
         raise e
     except Exception as e:
         print(f"[ERROR] Unexpected error processing {input_path}: {str(e)}")
         raise e
+
 
 def main():
     root = tk.Tk()
@@ -909,4 +1267,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
