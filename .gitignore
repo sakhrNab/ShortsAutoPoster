@@ -2,6 +2,12 @@
 node_modules
 package-lock.json
 image_editor.log
-config.json
+# config.json
 output_images
 scriptenv
+__pycache__
+assets
+videos
+songs
+ai.waverider
+preview.png

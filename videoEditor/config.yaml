@@ -1,0 +1,79 @@
+#######################
+# Global Settings
+#######################
+
+# Top Bar Configuration
+# Controls the optional bar at the very top of the video
+TOP_BAR_BACKGROUND: "n"                        # Enable/disable top bar overlay ("y"=yes, "n"=no)
+TOP_BAR_BACKGROUND_HEIGHT_IN_PERCENTAGE: 0     # Height of top bar as percentage of video height (0-100)
+TOP_BAR_BACKGROUND_TRANSPARENCY: 0             # Transparency of top bar (0=fully transparent, 1=solid black)
+
+# Upper Black Background Configuration
+# Controls the black background in the upper portion of the video
+TOP_BLACK_BACKGROUND: "n"                      # Enable/disable upper background ("y"=yes, "n"=no)
+BLACK_BACKGROUND_TRANSPARENCY: 0               # Opacity of upper background (0=transparent, 1=solid)
+TOP_BLACK_BACKGROUND_HEIGHT_IN_PERCENTAGE: 0   # Height of upper background as percentage (0-100)
+
+# Lower Black Background Configuration
+# Controls the black background at the bottom of the video (commonly used for branding)
+BOTTOM_BLACK_BACKGROUND: "y"                   # Enable/disable bottom background ("y"=yes, "n"=no)
+BOTTOM_BLACK_BACKGROUND_TRANSPARENCY: 0.7      # Opacity of bottom background (0.7=70% black)
+BOTTOM_BLACK_BACKGROUND_HEIGHT_IN_PERCENTAGE: 15  # Height of bottom background (15=15% of video height)
+
+# Brand Icon Settings
+# Controls the placement and size of the brand icon/logo
+ICON_WIDTH_RANGE: 600                         # Width of brand icon in pixels (100-1000)
+ICON_X_POSITION: "c"                          # Horizontal position: "c"=center, "l"=left, "r"=right, or 0-100%
+ICON_Y_OFFSET_IN_PERCENTAGE: 90               # Vertical position as percentage from top (90=90% down)
+
+#######################
+# Platform-Specific Settings
+#######################
+
+PLATFORM_DEFAULTS:
+  # Instagram Video Settings
+  instagram:
+    aspect_ratio: "2"           # Video format (2=9:16 portrait)
+    bottom_bg: "y"              # Enable bottom background
+    bottom_bg_height: 10        # Bottom background takes 15% of height
+    icon_width: 600            # Brand icon width in pixels
+    icon_x_pos: "c"            # Center icon horizontally
+    icon_y_position: 90        # Place icon 90% down from top
+
+  # TikTok Video Settings
+  tiktok:
+    aspect_ratio: "2"          # Video format (2=9:16 portrait)
+    bottom_bg: "y"             # Enable bottom background
+    bottom_bg_height: 20       # Larger bottom area (20%) for TikTok
+    icon_width: 500           # Slightly smaller icon
+    icon_x_pos: "c"           # Center icon horizontally
+    icon_y_position: 85       # Place icon 85% down from top
+
+  # YouTube Shorts Settings
+  youtube_shorts:
+    aspect_ratio: "2"          # Video format (2=9:16 portrait)
+    bottom_bg: "y"             # Enable bottom background
+    bottom_bg_height: 15       # Standard bottom area (15%)
+    icon_width: 550           # Medium icon size
+    icon_x_pos: "c"           # Center icon horizontally
+    icon_y_position: 88       # Place icon 88% down from top
+
+  # YouTube Long-Form Video Settings
+  youtube_long:
+    aspect_ratio: "3"          # Video format (3=16:9 landscape)
+    bottom_bg: "y"             # Enable bottom background
+    bottom_bg_height: 12       # Smaller bottom area for landscape
+    icon_width: 400           # Smaller icon for landscape format
+    icon_x_pos: "c"           # Center icon horizontally
+    icon_y_position: 85       # Place icon 85% down from top
+
+  # Custom Format Example
+  custom_platform:
+    aspect_ratio: "custom"     # Custom aspect ratio
+    width: 1440               # Custom width in pixels
+    height: 1800              # Custom height in pixels
+    bottom_bg: "y"            # Enable bottom background
+    bottom_bg_height: 15      # Standard bottom area (15%)
+    icon_width: 500          # Standard icon size
+    icon_x_pos: "c"          # Center icon horizontally
+    icon_y_position: 85      # Place icon 85% down from top
