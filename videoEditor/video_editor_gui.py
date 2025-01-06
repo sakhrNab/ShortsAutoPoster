@@ -514,10 +514,28 @@ class TextOverlayDialog:
         btn_frame = ttk.Frame(self.dialog)
         btn_frame.pack(fill='x', padx=5, pady=5)
 
-        ttk.Button(btn_frame, text="Add", command=self.add_overlay).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="Edit", command=self.edit_overlay).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="Remove", command=self.remove_overlay).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="OK", command=self.ok).pack(side=tk.RIGHT, padx=2)
+        # Add Delete All button
+        ttk.Button(btn_frame, text="Delete All", 
+                  command=self.delete_all_overlays,
+                  style='Danger.TButton').pack(side=tk.LEFT, padx=2)
+        
+        # Existing buttons
+        ttk.Button(btn_frame, text="Add", 
+                  command=self.add_overlay).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="Edit", 
+                  command=self.edit_overlay).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="Remove", 
+                  command=self.remove_overlay).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="OK", 
+                  command=self.ok).pack(side=tk.RIGHT, padx=2)
+
+    def delete_all_overlays(self):
+        """Delete all text overlays after confirmation"""
+        if messagebox.askyesno("Confirm Delete All", 
+                             "Are you sure you want to delete all text overlays?"):
+            self.overlays.clear()
+            self.update_list()
+            self.callback(self.overlays)
 
     def on_press(self, event):
         """Handle mouse press to start drag operation"""
@@ -729,7 +747,9 @@ class VideoEditorGUI:
         self.progress = tk.DoubleVar(value=0)
         self.processing = False
         self.selected_video = tk.StringVar()
-        self.session_settings = None  # Add this line to store session settings
+        self.session_settings = {
+            'text_overlays': []  # Initialize text_overlays in session settings
+        }  # Initialize as dictionary instead of None
         self.output_folder = tk.StringVar()
         self.selected_videos = set()  # Track selected videos
         self.current_preview_video = None  # Add this line
@@ -1006,13 +1026,19 @@ class VideoEditorGUI:
     def show_settings(self):
         dialog = CustomSettingsDialog(self.root, 
                                     lambda s: self.preview_panel.update_preview(settings=s),
-                                    self.session_settings)  # Pass current session settings
+                                    self.session_settings)
         self.root.wait_window(dialog.dialog)
         if dialog.result:
-            self.session_settings = dialog.result  # Store the settings for future use
-            # Update preview with new settings
-            self.preview_panel.update_preview(settings=self.session_settings, dimensions=self.current_dimensions)
-            return dialog.result
+            # Preserve text overlays when updating settings
+            self.session_settings.update(dialog.result)
+            self.session_settings['text_overlays'] = self.text_overlays
+            
+            # Update preview with complete settings including text overlays
+            self.preview_panel.update_preview(
+                settings=self.session_settings,
+                dimensions=self.current_dimensions
+            )
+            return self.session_settings
         return None
 
     def show_advanced_settings(self):
@@ -1033,22 +1059,17 @@ class VideoEditorGUI:
 
     def update_text_overlays(self, overlays):
         """Update text overlays and refresh preview"""
-        self.text_overlays = overlays.copy()  # Make a copy to prevent reference issues
+        self.text_overlays = overlays.copy()
         if hasattr(self, 'preview_panel'):
-            # Create new settings dictionary to force update
-            current_settings = self.preview_panel.get_current_settings() or {}
-            new_settings = current_settings.copy()
-            new_settings['text_overlays'] = self.text_overlays
+            # Update session settings with new overlays
+            self.session_settings['text_overlays'] = self.text_overlays
             
-            # Update preview with new settings
+            # Update preview with complete settings
             self.preview_panel.update_preview(
-                settings=new_settings,
+                settings=self.session_settings,
                 dimensions=self.current_dimensions,
                 video_path=self.current_preview_video
             )
-            
-            # Store updated settings
-            self.session_settings = new_settings
 
     def update_progress(self, value):
         self.progress.set(value)
