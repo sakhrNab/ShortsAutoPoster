@@ -15,30 +15,30 @@ import numpy as np
 import subprocess
 
 class CustomSettingsDialog:
-    def __init__(self, parent, preview_callback):
+    def __init__(self, parent, preview_callback, session_settings=None):
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("Custom Settings")
         self.dialog.geometry("500x600")
         self.dialog.transient(parent)
         
-        # Initialize variables with proper default values
-        self.video_position = tk.BooleanVar(value=False)
-        self.video_position_height = tk.StringVar(value="20")  # Changed default to 20%
-        self.video_position_opacity = tk.StringVar(value="0.5")  # Changed to 0.5
-        self.video_position_type = tk.StringVar(value="center")  # center, top, bottom
-        self.video_scale = tk.StringVar(value="100")  # video scale percentage
+        # Initialize variables with session settings if available, otherwise use defaults
+        self.video_position = tk.BooleanVar(value=session_settings.get('video_position', {}).get('enabled', False) if session_settings else False)
+        self.video_position_height = tk.StringVar(value=str(session_settings.get('video_position', {}).get('height', 20)) if session_settings else "20")
+        self.video_position_opacity = tk.StringVar(value=str(session_settings.get('video_position', {}).get('opacity', 0.5)) if session_settings else "0.5")
+        self.video_position_type = tk.StringVar(value=session_settings.get('video_position', {}).get('position', 'center') if session_settings else "center")
+        self.video_scale = tk.StringVar(value=str(int(session_settings.get('video_position', {}).get('scale', 1.0) * 100)) if session_settings else "100")
         
-        self.top_bg = tk.BooleanVar(value=False)
-        self.top_bg_height = tk.StringVar(value="15")  # Changed default to 15%
-        self.top_bg_opacity = tk.StringVar(value="0.5")  # Changed to 0.5
+        self.top_bg = tk.BooleanVar(value=session_settings.get('top_bg', {}).get('enabled', False) if session_settings else False)
+        self.top_bg_height = tk.StringVar(value=str(session_settings.get('top_bg', {}).get('height', 15)) if session_settings else "15")
+        self.top_bg_opacity = tk.StringVar(value=str(session_settings.get('top_bg', {}).get('opacity', 0.5)) if session_settings else "0.5")
         
-        self.bottom_bg = tk.BooleanVar(value=False)
-        self.bottom_bg_height = tk.StringVar(value="15")  # Changed default to 15%
-        self.bottom_bg_opacity = tk.StringVar(value="0.5")  # Changed to 0.5
+        self.bottom_bg = tk.BooleanVar(value=session_settings.get('bottom_bg', {}).get('enabled', False) if session_settings else False)
+        self.bottom_bg_height = tk.StringVar(value=str(session_settings.get('bottom_bg', {}).get('height', 15)) if session_settings else "15")
+        self.bottom_bg_opacity = tk.StringVar(value=str(session_settings.get('bottom_bg', {}).get('opacity', 0.5)) if session_settings else "0.5")
         
-        self.icon_width = tk.StringVar(value="400")  # Changed default to 400
-        self.icon_x_pos = tk.StringVar(value="c")
-        self.icon_y_pos = tk.StringVar(value="90")  # Changed to 90% (near bottom)
+        self.icon_width = tk.StringVar(value=str(session_settings.get('icon', {}).get('width', 400)) if session_settings else "400")
+        self.icon_x_pos = tk.StringVar(value=session_settings.get('icon', {}).get('x_position', 'c') if session_settings else "c")
+        self.icon_y_pos = tk.StringVar(value=str(session_settings.get('icon', {}).get('y_position', 90)) if session_settings else "90")
         
         self.create_widgets()
         self.result = None
@@ -402,6 +402,7 @@ class VideoEditorGUI:
         self.progress = tk.DoubleVar(value=0)
         self.processing = False
         self.selected_video = tk.StringVar()
+        self.session_settings = None  # Add this line to store session settings
         
         # Load config
         self.config = load_config()
@@ -546,9 +547,13 @@ class VideoEditorGUI:
 
     def show_settings(self):
         dialog = CustomSettingsDialog(self.root, 
-                                    lambda s: self.preview_panel.update_preview(settings=s))
+                                    lambda s: self.preview_panel.update_preview(settings=s),
+                                    self.session_settings)  # Pass current session settings
         self.root.wait_window(dialog.dialog)
-        return dialog.result
+        if dialog.result:
+            self.session_settings = dialog.result  # Store the settings for future use
+            return dialog.result
+        return None
 
     def show_advanced_settings(self):
         settings_window = tk.Toplevel(self.root)
@@ -781,114 +786,3 @@ def main():
 if __name__ == "__main__":
     main()
 
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 1016, in _bootstrap_inner
-    self.run()
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 953, in run
-    self._target(*self._args, **self._kwargs)
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1497, in _readerthread
-    buffer.append(fh.read())
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 23, in decode
-    return codecs.charmap_decode(input,self.errors,decoding_table)[0]
-UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in position 2493: character maps to <undefined>
-Exception in thread Thread-81 (_readerthread):
-Traceback (most recent call last):
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 1016, in _bootstrap_inner
-    self.run()
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 953, in run
-    self._target(*self._args, **self._kwargs)
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1497, in _readerthread
-    buffer.append(fh.read())
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 23, in decode
-    return codecs.charmap_decode(input,self.errors,decoding_table)[0]
-UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in position 2493: character maps to <undefined>
-Traceback (most recent call last):
-  File "C:\Users\sakhr\OneDrive\Goals\AI Wave Rider\scripts\fetchScripts\ShortsAutoPoster\videoEditor\video_editor_gui.py", line 725, in <module>
-    main()
-  File "C:\Users\sakhr\OneDrive\Goals\AI Wave Rider\scripts\fetchScripts\ShortsAutoPoster\videoEditor\video_editor_gui.py", line 722, in main
-    root.mainloop()
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\tkinter\__init__.py", line 1458, in mainloop
-    self.tk.mainloop(n)
-KeyboardInterrupt
-(envinsta) PS C:\Users\sakhr\OneDrive\Goals\AI Wave Rider\scripts\fetchScripts\ShortsAutoPoster\videoEditor> python .\video_editor_gui.py
-2025-01-06 08:31:35,911 - INFO - Processing with parameters:
-2025-01-06 08:31:35,912 - INFO - Video position: None
-2025-01-06 08:31:35,912 - INFO - Top background: {'height_percent': 28.0, 'opacity': 1.0}
-2025-01-06 08:31:35,912 - INFO - Bottom background: None
-2025-01-06 08:31:35,913 - INFO - Icon: {'width': 700, 'x_position': 'c', 'y_position': 16.0}
-Exception in thread Thread-3 (_readerthread):
-Traceback (most recent call last):
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 1016, in _bootstrap_inner
-    self.run()
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 953, in run
-    self._target(*self._args, **self._kwargs)
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1497, in _readerthread
-    buffer.append(fh.read())
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 23, in decode
-    return codecs.charmap_decode(input,self.errors,decoding_table)[0]
-UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in position 2510: character maps to <undefined>
-Exception in thread Thread-35 (_readerthread):
-Traceback (most recent call last):
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 1016, in _bootstrap_inner
-    self.run()
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 953, in run
-    self._target(*self._args, **self._kwargs)
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1497, in _readerthread
-    buffer.append(fh.read())
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 23, in decode
-    return codecs.charmap_decode(input,self.errors,decoding_table)[0]
-UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in position 2506: character maps to <undefined>
-Exception in thread Thread-53 (_readerthread):
-Traceback (most recent call last):
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 1016, in _bootstrap_inner
-    self.run()
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 953, in run
-    self._target(*self._args, **self._kwargs)
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1497, in _readerthread
-    buffer.append(fh.read())
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 23, in decode
-    return codecs.charmap_decode(input,self.errors,decoding_table)[0]
-UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in position 2502: character maps to <undefined>
-Exception in thread Thread-71 (_readerthread):
-Traceback (most recent call last):
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 1016, in _bootstrap_inner
-    self.run()
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 953, in run
-    self._target(*self._args, **self._kwargs)
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1497, in _readerthread
-    buffer.append(fh.read())
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 23, in decode
-    return codecs.charmap_decode(input,self.errors,decoding_table)[0]
-UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in position 2498: character maps to <undefined>
-Exception in thread Thread-75 (_readerthread):
-Traceback (most recent call last):
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 1016, in _bootstrap_inner
-    self.run()
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 953, in run
-    self._target(*self._args, **self._kwargs)
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1497, in _readerthread
-    buffer.append(fh.read())
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 23, in decode
-    return codecs.charmap_decode(input,self.errors,decoding_table)[0]
-UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in position 2519: character maps to <undefined>
-Exception in thread Thread-79 (_readerthread):
-Traceback (most recent call last):
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 1016, in _bootstrap_inner
-    self.run()
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 953, in run
-    self._target(*self._args, **self._kwargs)
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1497, in _readerthread
-    buffer.append(fh.read())
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 23, in decode
-    return codecs.charmap_decode(input,self.errors,decoding_table)[0]
-UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in position 2493: character maps to <undefined>
-Exception in thread Thread-81 (_readerthread):
-Traceback (most recent call last):
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 1016, in _bootstrap_inner
-    self.run()
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 953, in run
-    self._target(*self._args, **self._kwargs)
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1497, in _readerthread
-    buffer.append(fh.read())
-  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 23, in decode
-    return codecs.charmap_decode(input,self.errors,decoding_table)[0]
-UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in position 2493: character maps to <undefined>
