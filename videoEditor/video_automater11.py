@@ -2,341 +2,269 @@ import os
 import subprocess
 import signal
 import sys
-from multiprocessing import Pool
-import json
-import yaml  # Add this import at the top
-from tqdm import tqdm  # Import tqdm for progress bar
+import yaml
+from tqdm import tqdm
 
 def init_worker():
-    """
-    Ignore SIGINT in worker processes to allow the main process to handle it.
-    """
+    """Ignore SIGINT in worker processes."""
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
-def calculate_aspect_ratio(input_path):
-    """
-    Calculate the aspect ratio of the input video.
+def load_config():
+    """Load configuration from config.yaml"""
+    config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
+    try:
+        with open(config_path, 'r') as f:
+            return yaml.safe_load(f)
+    except FileNotFoundError:
+        return None
 
-    Parameters:
-        input_path (str): Path to the input video file.
+def get_platform_defaults(config, platform):
+    if not config or "PLATFORM_DEFAULTS" not in config:
+        return None
+    return config["PLATFORM_DEFAULTS"].get(platform)
 
-    Returns:
-        tuple: (width, height) of the video.
-    """
-    command = [
-        "ffprobe",
-        "-v", "error",
-        "-select_streams", "v:0",
-        "-show_entries", "stream=width,height",
-        "-of", "csv=s=x:p=0",
-        input_path
-    ]
-    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    width, height = map(int, result.stdout.strip().split('x'))
-    return width, height
+def get_parameters_from_config(config, platform_defaults=None):
+    """Convert config values to parameter dictionaries."""
+    if not config:
+        return None, None, None, None
 
-def get_custom_ratio():
-    """Get custom aspect ratio dimensions from user."""
-    print("\nEnter custom dimensions:")
-    while True:
-        try:
-            width = int(input("Width in pixels (e.g., 1080): ").strip())
-            height = int(input("Height in pixels (e.g., 1920): ").strip())
-            
-            if width <= 0 or height <= 0:
-                print("Dimensions must be positive numbers")
-                continue
-                
-            if width > 3840 or height > 3840:
-                print("Warning: Large dimensions might impact performance")
-                confirm = input("Continue? (y/n): ").lower()
-                if confirm != 'y':
-                    continue
-            
-            return (width, height)
-        except ValueError:
-            print("Please enter valid numbers")
-
-def get_ratio_choice():
-    """Get user's preferred aspect ratio choice."""
-    print("\nSelect output aspect ratio:")
-    print("1. Square (1:1)")
-    print("2. Portrait (9:16)")
-    print("3. Landscape (16:9)")
-    print("4. Custom ratio")
-    
-    while True:
-        choice = input("Enter your choice (1-4): ").strip()
-        if choice == '4':
-            return get_custom_ratio()
-        elif choice in ['1', '2', '3']:
-            return {'1': (1080, 1080), '2': (1080, 1920), '3': (1920, 1080)}[choice]
-
-def get_black_background_preferences():
-    """Get user preferences for bottom black background."""
-    while True:
-        add_bg = input("\nAdd black background at bottom? (y/n): ").lower()
-        if add_bg not in ['y', 'n']:
-            continue
-        
-        if add_bg == 'n':
-            return None
-        
-        height = input("Enter height percentage (1-50): ").strip()
-        try:
-            height = float(height)
-            if not 1 <= height <= 50:
-                print("Height must be between 1 and 50")
-                continue
-        except ValueError:
-            print("Please enter a valid number")
-            continue
-            
-        opacity = input("Enter opacity (0-1, e.g., 0.7): ").strip()
-        try:
-            opacity = float(opacity)
-            if not 0 <= opacity <= 1:
-                print("Opacity must be between 0 and 1")
-                continue
-        except ValueError:
-            print("Please enter a valid number")
-            continue
-            
-        return {"height_percent": height, "opacity": opacity}
-
-def get_video_positioning_preferences():
-    """Get user preferences for video positioning within the frame."""
-    while True:
-        position = input("\nDo you want to position the video with black bars? (y/n): ").lower()
-        if position not in ['y', 'n']:
-            continue
-            
-        if position == 'n':
-            return None
-            
-        bottom_height = input("Enter bottom black bar height percentage (1-50): ").strip()
-        try:
-            bottom_height = float(bottom_height)
-            if not 1 <= bottom_height <= 50:
-                print("Height must be between 1 and 50")
-                continue
-        except ValueError:
-            print("Please enter a valid number")
-            continue
-            
-        video_opacity = input("Enter opacity for black bars (0-1, e.g., 0.7): ").strip()
-        try:
-            video_opacity = float(video_opacity)
-            if not 0 <= video_opacity <= 1:
-                print("Opacity must be between 0 and 1")
-                continue
-        except ValueError:
-            print("Please enter a valid number")
-            continue
-            
-        return {
-            "bottom_height_percent": bottom_height,
-            "opacity": video_opacity
+    video_position = None
+    if config.get("TOP_BAR_BACKGROUND", "n").lower() == "y":
+        video_position = {
+            "bottom_height_percent": config.get("TOP_BAR_BACKGROUND_HEIGHT_IN_PERCENTAGE", 10),
+            "opacity": config.get("TOP_BAR_BACKGROUND_TRANSPARENCY", 0.7)
         }
 
-def get_top_background_preferences():
-    """Get user preferences for top black background."""
-    while True:
-        add_bg = input("\nAdd black background at top? (y/n): ").lower()
-        if add_bg not in ['y', 'n']:
-            continue
-        
-        if add_bg == 'n':
-            return None
-        
-        height = input("Enter top bar height percentage (1-30): ").strip()
-        try:
-            height = float(height)
-            if not 1 <= height <= 30:
-                print("Height must be between 1 and 30")
-                continue
-        except ValueError:
-            print("Please enter a valid number")
-            continue
-            
-        opacity = input("Enter opacity (0-1, e.g., 0.7): ").strip()
-        try:
-            opacity = float(opacity)
-            if not 0 <= opacity <= 1:
-                print("Opacity must be between 0 and 1")
-                continue
-        except ValueError:
-            print("Please enter a valid number")
-            continue
-            
-        return {"height_percent": height, "opacity": opacity}
+    top_bg = None
+    if config.get("TOP_BLACK_BACKGROUND", "n").lower() == "y":
+        top_bg = {
+            "height_percent": config.get("TOP_BLACK_BACKGROUND_HEIGHT_IN_PERCENTAGE", 10),
+            "opacity": config.get("BLACK_BACKGROUND_TRANSPARENCY", 0.7)
+        }
 
-def get_icon_preferences():
-    """Get user preferences for icon positioning and size."""
-    print("\nIcon positioning and size (press Enter for defaults):")
-    
-    # Get width
-    while True:
-        width = input("Enter icon width (default 500, range 100-1000): ").strip()
-        if not width:
-            width = 500
-            break
-        try:
-            width = int(width)
-            if 100 <= width <= 1000:
-                break
-            print("Width must be between 100 and 1000")
-        except ValueError:
-            print("Please enter a valid number")
-    
-    # Get X position
-    while True:
-        x_pos = input("Enter X position (c=center, l=left, r=right, or 0-100%): ").strip()
-        if not x_pos:
-            x_pos = 'c'
-        if x_pos in ['c', 'l', 'r'] or (x_pos.replace('.', '').isdigit() and 0 <= float(x_pos) <= 100):
-            break
-        print("Invalid position. Use 'c', 'l', 'r', or 0-100")
-    
-    # Get Y position
-    while True:
-        y_pos = input("Enter Y position (0-100%, default 12.5%): ").strip()
-        if not y_pos:
-            y_pos = "12.5"
-            break
-        try:
-            y_pos = float(y_pos)
-            if 0 <= y_pos <= 100:
-                break
-            print("Y position must be between 0 and 100")
-        except ValueError:
-            print("Please enter a valid number")
-    
-    return {
-        "width": width,
-        "x_position": x_pos,
-        "y_position": float(y_pos)
+    bottom_bg = None
+    if config.get("BOTTOM_BLACK_BACKGROUND", "n").lower() == "y":
+        bottom_bg = {
+            "height_percent": config.get("BOTTOM_BLACK_BACKGROUND_HEIGHT_IN_PERCENTAGE", 10),
+            "opacity": config.get("BOTTOM_BLACK_BACKGROUND_TRANSPARENCY", 0.7)
+        }
+
+    icon = {
+        "width": config.get("ICON_WIDTH_RANGE", 500),
+        "x_position": config.get("ICON_X_POSITION", "c"),
+        "y_position": config.get("ICON_Y_OFFSET_IN_PERCENTAGE", 12.5)
     }
 
-def generate_filter_complex(input_path, brand_icon, target_dimensions, black_bg_params=None, 
-                          video_position_params=None, top_bg_params=None, icon_params=None):
-    """Generate the filter_complex string with properly chained filters."""
-    target_width, target_height = target_dimensions
-    current_stage = "scaled"
-    
-    # Initial scaling and positioning
-    if video_position_params:
-        # Calculate video and black bar heights
-        bottom_height = int(target_height * (video_position_params["bottom_height_percent"] / 100))
-        video_height = target_height - bottom_height
-        opacity = video_position_params["opacity"]
-        
-        filter_complex = (
-            # Scale video to fit within the allocated space
-            f"[0:v]scale={target_width}:{video_height}:force_original_aspect_ratio=decrease,"
-            f"pad={target_width}:{target_height}:(ow-iw)/2:0:black[scaled];"
-            
-            # Add black background at the bottom
-            f"[scaled]drawbox=x=0:y={video_height}:w={target_width}:h={bottom_height}:"
-            f"color=black@{opacity}:t=fill[withbg]"
-        )
-        
-        current_stage = "withbg"
-    else:
-        filter_complex = (
-            f"[0:v]scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,"
-            f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2:black[{current_stage}]"
-        )
+    if platform_defaults:
+        if platform_defaults.get("bottom_bg") == "y":
+            bottom_bg = {
+                "height_percent": platform_defaults.get("bottom_bg_height", 10),
+                "opacity": config.get("BOTTOM_BLACK_BACKGROUND_TRANSPARENCY", 0.7)
+            }
+        icon.update({
+            "width": platform_defaults.get("icon_width", icon["width"]),
+            "x_position": platform_defaults.get("icon_x_pos", icon["x_position"]),
+            "y_position": platform_defaults.get("icon_y_position", icon["y_position"])
+        })
 
-    # Add top black background if requested
-    if top_bg_params:
-        height_pixels = int(target_height * (top_bg_params["height_percent"] / 100))
-        filter_complex += (
-            f";[{current_stage}]drawbox=x=0:y=0:w={target_width}:h={height_pixels}:"
-            f"color=black@{top_bg_params['opacity']}:t=fill[top]"
-        )
-        current_stage = "top"
+    return video_position, top_bg, bottom_bg, icon
 
-    # Add bottom black background if requested
+def build_ffmpeg_filter(
+    target_width,
+    target_height,
+    black_bg_params=None,
+    video_position_params=None,
+    top_bg_params=None,
+    icon_params=None,
+    text_overlays=None
+):
+    """
+    Returns a string that does the following in FFmpeg:
+    1) scale [0:v] => [base]
+    2) draw top background (drawbox) => [step1]
+    3) draw bottom background => [step2]
+    4) draw "video position" black bar => [step3]
+    5) overlay icon => [step4]
+    6) apply drawtext for each text overlay => final
+    """
+
+    text_overlays = text_overlays or []
+    icon_params = icon_params or {}
+    # We'll chain them using labels step by step.
+    filter_cmds = []
+
+    # Step 1: scale main video
+    # Force aspect ratio = none for demonstration
+    filter_cmds.append(
+        f"[0:v]scale={target_width}:{target_height}:force_original_aspect_ratio=decrease," 
+        f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2:black[base]"
+    )
+    current_label = "[base]"
+
+    # Step 2: top background
+    if top_bg_params and "enabled" in top_bg_params and top_bg_params["enabled"]:
+        h_percent = float(top_bg_params["height_percent"])
+        top_h = int(target_height * (h_percent / 100.0))
+        opacity = float(top_bg_params["opacity"])
+        # drawbox => label = [step1]
+        filter_cmds.append(
+            f"{current_label}drawbox=x=0:y=0:w={target_width}:h={top_h}:"
+            f"color=black@{opacity}:t=fill[step1]"
+        )
+        current_label = "[step1]"
+
+    # Step 3: bottom background
+    if black_bg_params and "enabled" not in black_bg_params:
+        # If 'enabled' is missing, assume we do it
+        pass
     if black_bg_params:
-        height_pixels = int(target_height * (black_bg_params["height_percent"] / 100))
-        y_position = target_height - height_pixels
-        filter_complex += (
-            f";[{current_stage}]drawbox=x=0:y={y_position}:w={target_width}:h={height_pixels}:"
-            f"color=black@{black_bg_params['opacity']}:t=fill[bg]"
-        )
-        current_stage = "bg"
+        if "height_percent" in black_bg_params:
+            h_percent = float(black_bg_params["height_percent"])
+            bot_h = int(target_height * (h_percent / 100.0))
+            opacity = float(black_bg_params["opacity"])
+            y_pos = target_height - bot_h
+            filter_cmds.append(
+                f"{current_label}drawbox=x=0:y={y_pos}:w={target_width}:h={bot_h}:"
+                f"color=black@{opacity}:t=fill[step2]"
+            )
+            current_label = "[step2]"
 
-    # Process icon positioning
-    icon_params = icon_params or {"width": 500, "x_position": "c", "y_position": 12.5}
-    icon_width = icon_params["width"]
-    
-    # Calculate X position
-    x_pos = icon_params["x_position"]
-    if x_pos == "c":
+    # Step 4: "video position" black bar (like a bottom bar?), if present
+    if video_position_params and "bottom_height_percent" in video_position_params:
+        bar_h = int(target_height * (video_position_params["bottom_height_percent"] / 100.0))
+        opacity = float(video_position_params["opacity"])
+        y_pos = target_height - bar_h
+        filter_cmds.append(
+            f"{current_label}drawbox=x=0:y={y_pos}:w={target_width}:h={bar_h}:"
+            f"color=black@{opacity}:t=fill[step3]"
+        )
+        current_label = "[step3]"
+
+    # Step 5: overlay icon => scale brand icon => label it [icon], then overlay
+    icon_w = icon_params.get("width", 400)
+    # X pos
+    x_p = icon_params.get("x_position", "c")
+    if x_p == "c":
         x_formula = "(main_w-overlay_w)/2"
-    elif x_pos == "l":
+    elif x_p == "l":
         x_formula = "10"
-    elif x_pos == "r":
+    elif x_p == "r":
         x_formula = "main_w-overlay_w-10"
     else:
-        x_formula = f"main_w*{float(x_pos)/100}"
-    
-    # Calculate Y position
-    y_formula = f"main_h*{icon_params['y_position']/100}"
+        # assume it's numeric
+        x_formula = f"main_w*({float(x_p)}/100.0)"
 
-    # Add the brand icon overlay
-    filter_complex += (
-        f";[1:v]scale={icon_width}:-1[icon];"
-        f"[{current_stage}][icon]overlay={x_formula}:{y_formula}"
+    # Y pos
+    y_pos = float(icon_params.get("y_position", 90.0))
+    y_formula = f"main_h*({y_pos}/100.0)"
+
+    filter_cmds.append(
+        f"[1:v]scale={icon_w}:-1[icon];"
+        f"{current_label}[icon]overlay={x_formula}:{y_formula}[step4]"
     )
-    
-    return filter_complex
+    current_label = "[step4]"
+
+    # Step 6: For each text overlay, do a separate drawtext
+    # We'll sequentially label them [txt0], [txt1], etc.
+    for i, ov in enumerate(text_overlays):
+        # Basic drawtext example
+        # x and y in pixels => we compute them from % if we want
+        fontfile = "Arial.ttf"  # or path to a real TTF
+        text_str = ov.get("text", "Text")
+        size = int(ov.get("size", 40))
+        color_hex = ov.get("color", "#FFFFFF")
+        # Convert #RRGGBB => 0xRRGGBB
+        color_hex_ffmpeg = "0x" + color_hex.lstrip("#")[:6]
+        # X, Y
+        x_pct = ov.get("x", 50.0)
+        y_pct = ov.get("y", 50.0)
+        x_draw = f"(main_w*{x_pct/100.0} - text_w/2)"
+        y_draw = f"(main_h*{y_pct/100.0} - text_h/2)"
+
+        filter_cmds.append(
+            f"{current_label}drawtext="
+            f"fontfile='{fontfile}':"
+            f"text='{text_str}':"
+            f"x={x_draw}:y={y_draw}:"
+            f"fontsize={size}:fontcolor={color_hex_ffmpeg}:"
+            f"alpha=1[txt{i}]"
+        )
+        current_label = f"[txt{i}]"
+
+    # Final label is what ends up as video
+    return ";".join(filter_cmds), current_label
 
 def process_video(video_args):
     """
-    Encodes a single video with FFmpeg using NVENC for hardware acceleration.
-
-    Parameters:
-        video_args (tuple): Contains input_path, brand_icon, output_path, filter_complex.
-
-    Returns:
-        str: Path to the processed video file.
+    1) Build a more advanced filter that respects black backgrounds, text overlays, etc.
+    2) Then call ffmpeg with the generated filter.
     """
-    input_path, brand_icon, output_path, target_dimensions, black_bg_params, \
-    video_position_params, top_bg_params, icon_params = video_args
-    
-    filter_complex = generate_filter_complex(
-        input_path, brand_icon, target_dimensions, black_bg_params,
-        video_position_params, top_bg_params, icon_params
+    (
+        input_path,
+        brand_icon,
+        output_path,
+        target_dimensions,
+        black_bg_params,
+        video_position_params,
+        top_bg_params,
+        icon_params,
+        text_overlays
+    ) = video_args
+
+    target_width, target_height = target_dimensions
+
+    # Build the filter chain
+    filter_cmd_str, final_label = build_ffmpeg_filter(
+        target_width,
+        target_height,
+        black_bg_params=black_bg_params,
+        video_position_params=video_position_params,
+        top_bg_params=top_bg_params,
+        icon_params=icon_params,
+        text_overlays=text_overlays
     )
 
+    # We'll pass something like: -filter_complex "[0:v]scale=...;...drawtext=...[txt0]" -map "[txt0]"
+    # But if final_label is e.g. [txt0], we need to map that. Or if no text overlays, final_label might be [step4]
+    # We'll map that as the final video output.
+
     command = [
-        "ffmpeg",                # Use "ffmpeg" directly (ensure it's in PATH)
-        "-i", input_path,        # Input video file
-        "-i", brand_icon,        # Input brand icon image
-        "-filter_complex", filter_complex,  # Complex filter for scaling, padding, and overlay
-        "-c:v", "h264_nvenc",    # Use NVIDIA NVENC encoder
-        "-preset", "p4",         # Preset for balance between speed and quality
-        "-cq", "20",             # Constant quality parameter (lower is better quality)
-        "-c:a", "copy",          # Copy audio without re-encoding
-        "-y",                    # Overwrite output files without asking
-        output_path              # Output video file
+        "ffmpeg",
+        "-i", input_path,
+        "-i", brand_icon,
+        "-filter_complex", filter_cmd_str,
+        "-map", f"{final_label}",
+        "-c:v", "h264_nvenc",
+        "-preset", "p4",
+        "-cq", "20",
+        "-c:a", "copy",
+        "-y",
+        output_path
     ]
 
     try:
-        # Run FFmpeg and capture output for debugging
         result = subprocess.run(
             command,
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
+            encoding='utf-8',
+            errors='replace'
         )
         return output_path
     except subprocess.CalledProcessError as e:
         print(f"[ERROR] FFmpeg failed for {input_path}:\n{e.stderr}")
         raise e
+    except Exception as e:
+        print(f"[ERROR] Unexpected error processing {input_path}: {str(e)}")
+        raise e
+
+#
+# The rest of the script below could remain the same if you have
+# CLI-based usage, e.g. main() or any multiprocess logic.
+# Omitted for brevity since your GUI calls `process_video(...)` directly.
+#
 
 def get_validated_input(prompt_message, is_folder=False, is_file=False):
     """

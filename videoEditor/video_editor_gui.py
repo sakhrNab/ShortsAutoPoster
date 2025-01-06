@@ -22,59 +22,19 @@ COMMON_FONTS = ["Arial", "Helvetica", "Times New Roman", "Courier New", "Verdana
 
 def safe_color_for_chooser(hex_str: str) -> str:
     """
-    If the hex has 8 digits (like #00000000), 
+    If the hex has 8 digits (like #00000000),
     strip alpha so colorchooser doesn't crash.
     """
     hex_str = hex_str.strip()
     if hex_str.startswith("#"):
         hex_str = hex_str[1:]
-    # If it has 8 characters, strip last two (alpha) for the dialog
-    if len(hex_str) == 8:
-        # keep only 6 digits
+    if len(hex_str) == 8:  # remove alpha for colorchooser
         hex_str = hex_str[:6]
     return f"#{hex_str}"
 
-def generate_filter_complex(
-    input_path,
-    brand_icon,
-    target_dimensions,
-    black_bg_params=None,
-    video_position_params=None,
-    top_bg_params=None,
-    icon_params=None,
-    text_overlays=None
-):
-    """
-    Modified to accept 8 arguments, so we don't get the error 
-    "takes from 3 to 7 positional arguments but 8 were given".
-
-    For demonstration, we do:
-      [0:v]scale=WxH[scaled];
-      [1:v]scale=100:100[icon];
-      [scaled][icon]overlay=10:10
-
-    No separate labeling of output, so we avoid unconnected outputs.
-    """
-    width, height = target_dimensions
-
-    filter_strs = []
-    # 1) Scale main video to (width x height)
-    filter_strs.append(f"[0:v]scale={width}:{height}[scaled]")
-
-    # 2) Scale icon
-    filter_strs.append("[1:v]scale=100:100[icon]")
-
-    # 3) Overlay icon at (10,10)
-    filter_strs.append("[scaled][icon]overlay=10:10")
-
-    # Combine everything
-    filter_complex = ";".join(filter_strs)
-    return filter_complex
-
-
 def ImageColor_getrgba(hex_str):
     """
-    Converts a hex color (#RRGGBB or #RRGGBBAA) to RGBA.
+    Converts a hex color (#RRGGBB or #RRGGBBAA) to an RGBA tuple (R, G, B, A).
     If alpha not provided, defaults to 255.
     """
     hex_str = hex_str.strip().lstrip('#')
@@ -91,7 +51,6 @@ def ImageColor_getrgba(hex_str):
         return (r, g, b, a)
     return (255, 255, 255, 255)
 
-
 class OverlayEditorDialog:
     """
     A dialog for editing/creating a single text overlay in real time.
@@ -103,7 +62,7 @@ class OverlayEditorDialog:
         self.dialog.geometry("380x480")
         self.dialog.transient(parent)
 
-        self.overlay_data = overlay_data  # dict with overlay settings
+        self.overlay_data = overlay_data
         self.on_change_callback = on_change_callback
 
         main_frame = ttk.Frame(self.dialog, padding=10)
@@ -122,7 +81,10 @@ class OverlayEditorDialog:
         ttk.Label(main_frame, text="Font:").grid(row=row_idx, column=0, sticky=tk.W)
         self.font_var = tk.StringVar(value=self.overlay_data.get("font", "Arial"))
         self.font_combo = ttk.Combobox(
-            main_frame, textvariable=self.font_var, values=COMMON_FONTS, state="readonly"
+            main_frame,
+            textvariable=self.font_var,
+            values=COMMON_FONTS,
+            state="readonly"
         )
         self.font_combo.grid(row=row_idx, column=1, pady=2, sticky=tk.EW)
         self.font_combo.bind("<<ComboboxSelected>>", self.update_overlay)
@@ -134,10 +96,9 @@ class OverlayEditorDialog:
         size_spin = ttk.Spinbox(
             main_frame,
             from_=8, to=300, increment=2, textvariable=self.size_var,
-            command=self.update_overlay  # spinbox arrow clicks
+            command=self.update_overlay
         )
         size_spin.grid(row=row_idx, column=1, pady=2, sticky=tk.EW)
-        # If user types a value
         size_spin.bind("<KeyRelease>", self.update_overlay)
         row_idx += 1
 
@@ -164,7 +125,8 @@ class OverlayEditorDialog:
         ttk.Label(main_frame, text="BG Opacity:").grid(row=row_idx, column=0, sticky=tk.W)
         self.bg_opacity_var = tk.DoubleVar(value=self.overlay_data.get("bg_opacity", 0.0))
         bg_opacity_spin = ttk.Spinbox(
-            main_frame, from_=0.0, to=1.0, increment=0.1, textvariable=self.bg_opacity_var,
+            main_frame,
+            from_=0.0, to=1.0, increment=0.1, textvariable=self.bg_opacity_var,
             command=self.update_overlay
         )
         bg_opacity_spin.grid(row=row_idx, column=1, pady=2, sticky=tk.EW)
@@ -178,18 +140,19 @@ class OverlayEditorDialog:
 
         ttk.Label(pos_frame, text="X%:").grid(row=0, column=0, sticky=tk.W)
         self.x_var = tk.DoubleVar(value=self.overlay_data.get("x", 50.0))
-        x_spin = ttk.Spinbox(pos_frame, from_=0, to=100, increment=1, textvariable=self.x_var,
+        x_spin = ttk.Spinbox(pos_frame, from_=0, to=100, increment=1,
+                             textvariable=self.x_var,
                              command=self.update_overlay)
         x_spin.grid(row=0, column=1, padx=2, pady=2, sticky=tk.EW)
         x_spin.bind("<KeyRelease>", self.update_overlay)
 
         ttk.Label(pos_frame, text="Y%:").grid(row=0, column=2, sticky=tk.W)
         self.y_var = tk.DoubleVar(value=self.overlay_data.get("y", 50.0))
-        y_spin = ttk.Spinbox(pos_frame, from_=0, to=100, increment=1, textvariable=self.y_var,
+        y_spin = ttk.Spinbox(pos_frame, from_=0, to=100, increment=1,
+                             textvariable=self.y_var,
                              command=self.update_overlay)
         y_spin.grid(row=0, column=3, padx=2, pady=2, sticky=tk.EW)
         y_spin.bind("<KeyRelease>", self.update_overlay)
-
         row_idx += 1
 
         # Outline & Shadow
@@ -203,7 +166,7 @@ class OverlayEditorDialog:
                         command=self.update_overlay).pack(side=tk.LEFT, padx=5)
         row_idx += 1
 
-        # Buttons
+        # Close button
         btn_frame = ttk.Frame(main_frame)
         btn_frame.grid(row=row_idx, column=0, columnspan=2, pady=10)
         ttk.Button(btn_frame, text="Close", command=self.close_dialog).pack(side=tk.RIGHT, padx=5)
@@ -212,21 +175,17 @@ class OverlayEditorDialog:
             main_frame.columnconfigure(col, weight=1)
 
     def pick_text_color(self):
-        # strip alpha if present
         initial = safe_color_for_chooser(self.color_var.get())
-        color = colorchooser.askcolor(initialcolor=initial)
-        if color and color[1]:
-            self.color_var.set(color[1])
+        c = colorchooser.askcolor(initialcolor=initial)
+        if c and c[1]:
+            self.color_var.set(c[1])
             self.update_overlay()
 
     def pick_bg_color(self):
-        # strip alpha if present
         initial = safe_color_for_chooser(self.bg_color_var.get())
-        color = colorchooser.askcolor(initialcolor=initial)
-        if color and color[1]:
-            # If user picks #RRGGBB, we can restore alpha if needed
-            # but let's just store it as #RRGGBB for simplicity
-            self.bg_color_var.set(color[1])
+        c = colorchooser.askcolor(initialcolor=initial)
+        if c and c[1]:
+            self.bg_color_var.set(c[1])
             self.update_overlay()
 
     def update_overlay(self, *args):
@@ -241,6 +200,7 @@ class OverlayEditorDialog:
         self.overlay_data["outline"] = self.outline_var.get()
         self.overlay_data["shadow"] = self.shadow_var.get()
 
+        # Notify parent for real-time preview update
         self.on_change_callback()
 
     def close_dialog(self):
@@ -249,8 +209,7 @@ class OverlayEditorDialog:
 
 class TextOverlaysDialog:
     """
-    Manages multiple text overlays in a list (with add, edit, remove, reorder).
-    Changes appear in real-time (no separate Apply needed).
+    Manages multiple text overlays in a list (add, edit, remove, reorder).
     """
     def __init__(self, parent, text_overlays, on_change_callback):
         self.dialog = tk.Toplevel(parent)
@@ -258,13 +217,12 @@ class TextOverlaysDialog:
         self.dialog.geometry("450x400")
         self.dialog.transient(parent)
 
-        self.text_overlays = text_overlays  # list of dict
+        self.text_overlays = text_overlays
         self.on_change_callback = on_change_callback
 
         main_frame = ttk.Frame(self.dialog, padding=5)
         main_frame.pack(expand=True, fill='both')
 
-        # Listbox
         list_frame = ttk.LabelFrame(main_frame, text="Overlays")
         list_frame.pack(side=tk.LEFT, fill='both', expand=True)
 
@@ -309,7 +267,6 @@ class TextOverlaysDialog:
         self.text_overlays.append(new_overlay)
         self.refresh_listbox()
         self.on_change_callback()
-
         idx = len(self.text_overlays) - 1
         self.overlay_listbox.select_set(idx)
         self.edit_overlay()
@@ -370,7 +327,6 @@ class CustomSettingsDialog:
         if session_settings is None:
             session_settings = {}
 
-        # Video/back/icon variables
         self.video_position = tk.BooleanVar(
             value=session_settings.get('video_position', {}).get('enabled', False)
         )
@@ -466,12 +422,12 @@ class CustomSettingsDialog:
         ttk.Label(bottom_frame, text="Background Opacity (0.0-1.0):").pack()
         ttk.Entry(bottom_frame, textvariable=self.bottom_bg_opacity).pack()
         
-        # Icon Settings
+        # Icon
         icon_frame = ttk.Frame(notebook, padding="10")
         notebook.add(icon_frame, text='Icon Settings')
         ttk.Label(icon_frame, text="Icon Width (100-1000px):").pack()
         ttk.Entry(icon_frame, textvariable=self.icon_width).pack()
-        ttk.Label(icon_frame, text="X Pos (c=center, l=left, r=right, 0-100):").pack()
+        ttk.Label(icon_frame, text="X Pos (c= center, l= left, r= right, or 0-100):").pack()
         ttk.Entry(icon_frame, textvariable=self.icon_x_pos).pack()
         ttk.Label(icon_frame, text="Y Pos (0-100%):").pack()
         ttk.Entry(icon_frame, textvariable=self.icon_y_pos).pack()
@@ -480,17 +436,16 @@ class CustomSettingsDialog:
         text_frame = ttk.Frame(notebook, padding="10")
         notebook.add(text_frame, text="Text Overlays")
         ttk.Label(text_frame, text="Manage multiple text overlays:").pack(anchor="w", pady=5)
-        btn_overlays = ttk.Button(text_frame, text="Open Overlays Manager", command=self.open_overlays_dialog)
-        btn_overlays.pack(pady=5, anchor="w")
+        ttk.Button(text_frame, text="Open Overlays Manager", command=self.open_overlays_dialog).pack(pady=5, anchor="w")
         ttk.Label(text_frame, text="Changes appear immediately in preview.").pack(anchor="w")
 
-        # Buttons at bottom
+        # OK/Cancel
         btn_frame = ttk.Frame(self.dialog)
         btn_frame.pack(fill='x', padx=5, pady=5)
         ttk.Button(btn_frame, text="OK", command=self.ok).pack(side='right', padx=5)
         ttk.Button(btn_frame, text="Cancel", command=self.cancel).pack(side='right')
 
-        # Traces for real-time updates
+        # Traces
         self.video_position.trace_add("write", self.on_setting_changed)
         self.video_position_height.trace_add("write", self.on_setting_changed)
         self.video_position_opacity.trace_add("write", self.on_setting_changed)
@@ -572,7 +527,6 @@ class CustomSettingsDialog:
 
     def cancel(self):
         self.dialog.destroy()
-
 
 class PreviewPanel:
     def __init__(self, parent, settings_callback):
@@ -740,6 +694,7 @@ class PreviewPanel:
             except Exception as e:
                 print(f"Error applying icon: {str(e)}")
 
+        # Now apply text overlays
         pil_image = Image.fromarray(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB))
         draw = ImageDraw.Draw(pil_image)
 
@@ -788,11 +743,11 @@ class PreviewPanel:
         if shadow:
             shadow_offset = 2
             shadow_color = (0, 0, 0, 128)
-            draw.text((x + shadow_offset, y + shadow_offset), text, font=font, fill=shadow_color)
+            draw.text((x+shadow_offset, y+shadow_offset), text, font=font, fill=shadow_color)
 
         if outline:
             for ox, oy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                draw.text((x + ox, y + oy), text, font=font, fill=(0,0,0,255))
+                draw.text((x+ox, y+oy), text, font=font, fill=(0,0,0,255))
 
         draw.text((x, y), text, font=font, fill=text_color)
 
@@ -1175,6 +1130,7 @@ class VideoEditorGUI:
                 input_path = os.path.join(source_folder, vf)
                 output_path = os.path.join(output_folder, f"processed_{vf}")
 
+                # Pass text_overlays to process_video for drawtext
                 process_video((
                     input_path,
                     brand_icon,
@@ -1184,7 +1140,7 @@ class VideoEditorGUI:
                     video_position_params,
                     top_bg_params,
                     icon_params,
-                    text_overlays  # 8th argument
+                    text_overlays
                 ))
 
                 progress = (i + 1) / len(video_files) * 100
@@ -1197,68 +1153,6 @@ class VideoEditorGUI:
             self.logger.error(f"Error during processing: {str(e)}")
             self.update_queue.put(("log", f"Error: {str(e)}"))
             self.update_queue.put(("complete", None))
-
-
-def process_video(video_args):
-    """
-    Calls FFmpeg with a filter_complex that scales main video, scales icon, and overlays icon at (10,10).
-    We've removed the [outv] label to avoid 'unconnected output' errors.
-    """
-    (
-        input_path,
-        brand_icon,
-        output_path,
-        target_dimensions,
-        black_bg_params,
-        video_position_params,
-        top_bg_params,
-        icon_params,
-        text_overlays
-    ) = video_args
-
-    filter_complex = generate_filter_complex(
-        input_path,
-        brand_icon,
-        target_dimensions,
-        black_bg_params,
-        video_position_params,
-        top_bg_params,
-        icon_params,
-        text_overlays
-    )
-
-    cmd = [
-        "ffmpeg",
-        "-i", input_path,
-        "-i", brand_icon,
-        "-filter_complex", filter_complex,
-        "-c:v", "h264_nvenc",
-        "-preset", "p4",
-        "-cq", "20",
-        "-c:a", "copy",
-        "-y",
-        output_path
-    ]
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            universal_newlines=True,
-            encoding='utf-8',
-            errors='replace'
-        )
-        stdout, stderr = proc.communicate()
-        if proc.returncode != 0:
-            raise subprocess.CalledProcessError(proc.returncode, cmd, output=stdout, stderr=stderr)
-        return output_path
-    except subprocess.CalledProcessError as e:
-        print(f"[ERROR] FFmpeg failed for {input_path}:\n{e.stderr}")
-        raise e
-    except Exception as e:
-        print(f"[ERROR] Unexpected error processing {input_path}: {str(e)}")
-        raise e
-
 
 def main():
     root = tk.Tk()
