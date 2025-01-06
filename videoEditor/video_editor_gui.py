@@ -6,12 +6,13 @@ import threading
 import queue
 import logging
 from datetime import datetime
-from video_automater11 import process_video, load_config, get_parameters_from_config, get_platform_defaults
+from video_automater11 import process_video, load_config, get_parameters_from_config, get_platform_defaults, generate_filter_complex
 from typing import Dict, Any, Tuple
 import cv2
 from PIL import Image, ImageTk
 import random
 import numpy as np
+import subprocess
 
 class CustomSettingsDialog:
     def __init__(self, parent, preview_callback):
@@ -716,6 +717,62 @@ class VideoEditorGUI:
             self.update_queue.put(("log", f"Error: {str(e)}"))
             self.update_queue.put(("complete", None))
 
+def process_video(video_args):
+    """
+    Process a single video with proper UTF-8 encoding handling.
+    """
+    input_path, brand_icon, output_path, target_dimensions, black_bg_params, \
+    video_position_params, top_bg_params, icon_params = video_args
+    
+    filter_complex = generate_filter_complex(
+        input_path, brand_icon, target_dimensions, black_bg_params,
+        video_position_params, top_bg_params, icon_params
+    )
+
+    command = [
+        "ffmpeg",
+        "-i", input_path,
+        "-i", brand_icon,
+        "-filter_complex", filter_complex,
+        "-c:v", "h264_nvenc",
+        "-preset", "p4",
+        "-cq", "20",
+        "-c:a", "copy",
+        "-y",
+        output_path
+    ]
+
+    try:
+        # Add encoding parameters and capture output properly
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,  # This enables text mode with universal newlines
+            encoding='utf-8',         # Specify UTF-8 encoding
+            errors='replace'          # Replace invalid characters instead of failing
+        )
+        
+        # Wait for the process to complete and get output
+        stdout, stderr = process.communicate()
+        
+        if process.returncode != 0:
+            raise subprocess.CalledProcessError(
+                process.returncode, 
+                command, 
+                output=stdout, 
+                stderr=stderr
+            )
+            
+        return output_path
+        
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] FFmpeg failed for {input_path}:\n{e.stderr}")
+        raise e
+    except Exception as e:
+        print(f"[ERROR] Unexpected error processing {input_path}: {str(e)}")
+        raise e
+
 def main():
     root = tk.Tk()
     app = VideoEditorGUI(root)
@@ -724,3 +781,114 @@ def main():
 if __name__ == "__main__":
     main()
 
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 1016, in _bootstrap_inner
+    self.run()
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 953, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1497, in _readerthread
+    buffer.append(fh.read())
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 23, in decode
+    return codecs.charmap_decode(input,self.errors,decoding_table)[0]
+UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in position 2493: character maps to <undefined>
+Exception in thread Thread-81 (_readerthread):
+Traceback (most recent call last):
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 1016, in _bootstrap_inner
+    self.run()
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 953, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1497, in _readerthread
+    buffer.append(fh.read())
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 23, in decode
+    return codecs.charmap_decode(input,self.errors,decoding_table)[0]
+UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in position 2493: character maps to <undefined>
+Traceback (most recent call last):
+  File "C:\Users\sakhr\OneDrive\Goals\AI Wave Rider\scripts\fetchScripts\ShortsAutoPoster\videoEditor\video_editor_gui.py", line 725, in <module>
+    main()
+  File "C:\Users\sakhr\OneDrive\Goals\AI Wave Rider\scripts\fetchScripts\ShortsAutoPoster\videoEditor\video_editor_gui.py", line 722, in main
+    root.mainloop()
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\tkinter\__init__.py", line 1458, in mainloop
+    self.tk.mainloop(n)
+KeyboardInterrupt
+(envinsta) PS C:\Users\sakhr\OneDrive\Goals\AI Wave Rider\scripts\fetchScripts\ShortsAutoPoster\videoEditor> python .\video_editor_gui.py
+2025-01-06 08:31:35,911 - INFO - Processing with parameters:
+2025-01-06 08:31:35,912 - INFO - Video position: None
+2025-01-06 08:31:35,912 - INFO - Top background: {'height_percent': 28.0, 'opacity': 1.0}
+2025-01-06 08:31:35,912 - INFO - Bottom background: None
+2025-01-06 08:31:35,913 - INFO - Icon: {'width': 700, 'x_position': 'c', 'y_position': 16.0}
+Exception in thread Thread-3 (_readerthread):
+Traceback (most recent call last):
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 1016, in _bootstrap_inner
+    self.run()
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 953, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1497, in _readerthread
+    buffer.append(fh.read())
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 23, in decode
+    return codecs.charmap_decode(input,self.errors,decoding_table)[0]
+UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in position 2510: character maps to <undefined>
+Exception in thread Thread-35 (_readerthread):
+Traceback (most recent call last):
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 1016, in _bootstrap_inner
+    self.run()
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 953, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1497, in _readerthread
+    buffer.append(fh.read())
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 23, in decode
+    return codecs.charmap_decode(input,self.errors,decoding_table)[0]
+UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in position 2506: character maps to <undefined>
+Exception in thread Thread-53 (_readerthread):
+Traceback (most recent call last):
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 1016, in _bootstrap_inner
+    self.run()
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 953, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1497, in _readerthread
+    buffer.append(fh.read())
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 23, in decode
+    return codecs.charmap_decode(input,self.errors,decoding_table)[0]
+UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in position 2502: character maps to <undefined>
+Exception in thread Thread-71 (_readerthread):
+Traceback (most recent call last):
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 1016, in _bootstrap_inner
+    self.run()
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 953, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1497, in _readerthread
+    buffer.append(fh.read())
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 23, in decode
+    return codecs.charmap_decode(input,self.errors,decoding_table)[0]
+UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in position 2498: character maps to <undefined>
+Exception in thread Thread-75 (_readerthread):
+Traceback (most recent call last):
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 1016, in _bootstrap_inner
+    self.run()
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 953, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1497, in _readerthread
+    buffer.append(fh.read())
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 23, in decode
+    return codecs.charmap_decode(input,self.errors,decoding_table)[0]
+UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in position 2519: character maps to <undefined>
+Exception in thread Thread-79 (_readerthread):
+Traceback (most recent call last):
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 1016, in _bootstrap_inner
+    self.run()
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 953, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1497, in _readerthread
+    buffer.append(fh.read())
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 23, in decode
+    return codecs.charmap_decode(input,self.errors,decoding_table)[0]
+UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in position 2493: character maps to <undefined>
+Exception in thread Thread-81 (_readerthread):
+Traceback (most recent call last):
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 1016, in _bootstrap_inner
+    self.run()
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\threading.py", line 953, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1497, in _readerthread
+    buffer.append(fh.read())
+  File "C:\Users\sakhr\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 23, in decode
+    return codecs.charmap_decode(input,self.errors,decoding_table)[0]
+UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in position 2493: character maps to <undefined>
