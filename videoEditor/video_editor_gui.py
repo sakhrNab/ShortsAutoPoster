@@ -423,22 +423,46 @@ class PreviewPanel:
         return canvas
 
     def _parse_color(self, color):
-        """Convert color name or hex to BGR tuple"""
-        color_map = {
-            'white': (255, 255, 255),
-            'black': (0, 0, 0),
-            'red': (0, 0, 255),
-            'green': (0, 255, 0),
-            'blue': (255, 0, 0),
-        }
-        if color.lower() in color_map:
-            return color_map[color.lower()]
-        # Handle hex colors
-        if color.startswith('#'):
-            c = color.lstrip('#')
-            if len(c) == 6:
-                rgb = tuple(int(c[i:i+2], 16) for i in (0, 2, 4))
+        """Convert any color format to BGR for OpenCV"""
+        if not color:
+            return (255, 255, 255)  # Default to white
+
+        try:
+            # Handle hex colors
+            if color.startswith('#'):
+                c = color.lstrip('#')
+                if len(c) == 6:
+                    r = int(c[0:2], 16)
+                    g = int(c[2:4], 16)
+                    b = int(c[4:6], 16)
+                    return (b, g, r)  # Convert to BGR
+
+            # Handle color names
+            color_map = {
+                'white': (255, 255, 255),
+                'black': (0, 0, 0),
+                'red': (0, 0, 255),      # BGR values
+                'green': (0, 255, 0),
+                'blue': (255, 0, 0),
+                'yellow': (0, 255, 255),
+                'cyan': (255, 255, 0),
+                'magenta': (255, 0, 255),
+                'purple': (128, 0, 128),
+                'pink': (147, 192, 255)   # BGR for pink
+            }
+            
+            color_lower = color.lower().strip()
+            if color_lower in color_map:
+                return color_map[color_lower]
+
+            # Handle rgb() format
+            if color.startswith('rgb'):
+                rgb = tuple(map(int, color.strip('rgb()').split(',')))
                 return (rgb[2], rgb[1], rgb[0])  # Convert to BGR
+                
+        except (ValueError, AttributeError):
+            pass
+            
         return (255, 255, 255)  # Default to white
 
     def update_preview(self, video_path=None, settings=None, dimensions=None):
@@ -549,76 +573,69 @@ class TextOverlayDialog:
 
     def on_press(self, event):
         """Handle mouse press to start drag operation"""
-        index = self.overlay_list.nearest(event.y)
-        if index >= 0 and index < self.overlay_list.size():  # Add bounds check
-            self.drag_source_index = index
+        self.drag_source_index = self.overlay_list.nearest(event.y)
+        if 0 <= self.drag_source_index < len(self.overlays):
+            self.dragging = True
             self.overlay_list.selection_clear(0, tk.END)
-            self.overlay_list.selection_set(index)
+            self.overlay_list.selection_set(self.drag_source_index)
+            return "break"  # Prevent default handling
 
     def on_motion(self, event):
         """Handle mouse motion during drag"""
-        if self.drag_source_index is not None:
-            try:
-                current_index = self.overlay_list.nearest(event.y)
-                if current_index >= self.overlay_list.size():
-                    current_index = self.overlay_list.size() - 1
-                
-                # Remove previous arrow if it exists
-                if self.drag_line_index is not None:
-                    self.overlay_list.delete(self.drag_line_index)
-                
-                # Don't show arrow at source position
-                if current_index != self.drag_source_index:
-                    self.drag_line_index = current_index
-                    self.overlay_list.insert(current_index, "▼")
-                    self.current_index = current_index
-                else:
-                    self.drag_line_index = None
-                    self.current_index = self.drag_source_index
-                
-            except tk.TclError:
-                pass
+        if not self.dragging:
+            return
+            
+        current_index = self.overlay_list.nearest(event.y)
+        if current_index < 0:
+            current_index = 0
+        elif current_index >= len(self.overlays):
+            current_index = len(self.overlays) - 1
+            
+        # Remove previous arrow indicator
+        if hasattr(self, 'drop_indicator'):
+            self.overlay_list.delete(self.drop_indicator)
+            
+        # Don't show indicator at source position
+        if current_index != self.drag_source_index:
+            # Store insertion point
+            self.drop_indicator = current_index
+            self.overlay_list.insert(current_index, "▼")
+        return "break"  # Prevent default handling
 
     def on_release(self, event):
         """Handle mouse release to complete drag operation"""
+        if not self.dragging:
+            return
+            
         try:
-            if self.drag_source_index is not None and len(self.overlays) > 0:
-                # Remove the arrow indicator
-                if self.drag_line_index is not None:
-                    self.overlay_list.delete(self.drag_line_index)
-                    
-                drop_index = self.current_index if self.current_index is not None else self.drag_source_index
+            # Get drop position
+            drop_index = getattr(self, 'drop_indicator', self.drag_source_index)
+            if hasattr(self, 'drop_indicator'):
+                self.overlay_list.delete(self.drop_indicator)
                 
-                # Only move if dropping at a different position
-                if drop_index != self.drag_source_index:
-                    # Get the overlay being moved
-                    overlay = self.overlays[self.drag_source_index]
-                    
-                    # Remove from original position
-                    self.overlays.pop(self.drag_source_index)
-                    
-                    # Adjust drop index if needed
-                    if drop_index > self.drag_source_index:
-                        drop_index -= 1
-                    
-                    # Insert at new position
-                    if drop_index >= len(self.overlays):
-                        self.overlays.append(overlay)
-                    else:
-                        self.overlays.insert(drop_index, overlay)
-                    
-                    # Update the display
-                    self.update_list()
-                    
-                    # Force immediate callback for preview update
-                    self.callback(self.overlays.copy())  # Send a copy to prevent reference issues
+            if drop_index != self.drag_source_index and 0 <= drop_index < len(self.overlays):
+                # Get the overlay being moved
+                overlay = self.overlays.pop(self.drag_source_index)
                 
-        except (IndexError, tk.TclError) as e:
-            print(f"Error during drag-and-drop: {str(e)}")
+                # Adjust drop index if needed
+                if drop_index > self.drag_source_index:
+                    drop_index -= 1
+                    
+                # Insert at new position
+                self.overlays.insert(drop_index, overlay)
+                
+                # Update display and trigger preview
+                self.update_list()
+                if self.callback:
+                    self.callback(self.overlays)
+                
         finally:
+            self.dragging = False
             self.drag_source_index = None
-            self.current_index = None
-            self.drag_line_index = None
+            if hasattr(self, 'drop_indicator'):
+                delattr(self, 'drop_indicator')
+        
+        return "break"  # Prevent default handling
 
     def update_list(self):
         """Update the listbox display"""
@@ -685,39 +702,58 @@ class TextOverlayDialog:
 class ColorPickerDialog:
     def __init__(self, parent, initial_color="#FFFFFF"):
         self.result = initial_color
-        # Convert named colors to hex before processing
+        # Convert the initial color to RGB for the color chooser
         rgb_color = self.convert_to_rgb(initial_color)
-        color = colorchooser.askcolor(rgb_color, parent=parent, title="Choose Color")
-        if color[1]:  # color is ((r,g,b), hex_value)
-            self.result = color[1]
+        
+        # Show color chooser dialog
+        color = colorchooser.askcolor(
+            color=rgb_color,
+            parent=parent,
+            title="Choose Color"
+        )
+        
+        if color and color[1]:  # color is ((r,g,b), hex_value)
+            self.result = color[1]  # Use hex value for consistency
 
     def convert_to_rgb(self, color):
-        """Convert color name or hex to RGB tuple"""
+        """Convert any color format to RGB tuple"""
         color_map = {
             'white': (255, 255, 255),
             'black': (0, 0, 0),
             'red': (255, 0, 0),
             'green': (0, 255, 0),
             'blue': (0, 0, 255),
+            'yellow': (255, 255, 0),
+            'cyan': (0, 255, 255),
+            'magenta': (255, 0, 255),
+            'purple': (128, 0, 128),
+            'pink': (255, 192, 203)
         }
         
-        # If it's a named color
-        if color.lower() in color_map:
-            return color_map[color.lower()]
-        
-        # If it's already a hex color
-        if color.startswith('#'):
-            hex_color = color.lstrip('#')
-            if len(hex_color) == 6:
-                return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        try:
+            # Handle named colors
+            if isinstance(color, str):
+                color = color.lower().strip()
+                if color in color_map:
+                    return color_map[color]
                 
-        # Default to white if color is invalid
-        return (255, 255, 255)
-
-    def _hex_to_rgb(self, hex_color):
-        """Convert hex color to RGB tuple"""
-        hex_color = hex_color.lstrip('#')
-        return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+                # Handle hex colors
+                if color.startswith('#'):
+                    color = color.lstrip('#')
+                    if len(color) == 6:
+                        r = int(color[0:2], 16)
+                        g = int(color[2:4], 16)
+                        b = int(color[4:6], 16)
+                        return (r, g, b)
+                
+            # Handle RGB tuple/list
+            elif isinstance(color, (tuple, list)) and len(color) == 3:
+                return tuple(map(int, color))
+                
+        except (ValueError, AttributeError):
+            pass
+            
+        return (255, 255, 255)  # Default to white
 
 class TextOverlaySettingsDialog:
     def __init__(self, parent, settings=None, preview_callback=None):
@@ -870,13 +906,22 @@ class TextOverlaySettingsDialog:
         self.italic.trace_add("write", self.on_bool_changed)
 
     def update_color_previews(self):
-        """Update the color preview swatches and trigger preview update"""
-        if not self.widgets_ready:  # Check if widgets are ready
+        """Update the color preview swatches"""
+        if not self.widgets_ready:
             return
         try:
-            self.text_color_preview.configure(bg=self.color.get())
-            self.bg_color_preview.configure(bg=self.bg_color.get())
-            # Add immediate preview update
+            # Update preview swatches with current colors
+            text_color = self.color.get()
+            bg_color = self.bg_color.get()
+            
+            # Handle hex colors properly
+            if not text_color.startswith('#'):
+                text_color = f"#{text_color}" if text_color else "#FFFFFF"
+            if not bg_color.startswith('#'):
+                bg_color = f"#{bg_color}" if bg_color else "#000000"
+                
+            self.text_color_preview.configure(bg=text_color)
+            self.bg_color_preview.configure(bg=bg_color)
             self.on_setting_changed(None)
         except tk.TclError:
             pass  # Invalid color format
@@ -887,8 +932,7 @@ class TextOverlaySettingsDialog:
         if dialog.result:
             self.color.delete(0, tk.END)
             self.color.insert(0, dialog.result)
-            self.update_color_previews()
-            # Add immediate preview update
+            self.text_color_preview.configure(bg=dialog.result)
             self.on_setting_changed(None)
 
     def pick_bg_color(self):
@@ -897,8 +941,7 @@ class TextOverlaySettingsDialog:
         if dialog.result:
             self.bg_color.delete(0, tk.END)
             self.bg_color.insert(0, dialog.result)
-            self.update_color_previews()
-            # Add immediate preview update
+            self.bg_color_preview.configure(bg=dialog.result)
             self.on_setting_changed(None)
 
     def adjust_font_size(self, delta, update_preview=False):
@@ -1579,4 +1622,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
