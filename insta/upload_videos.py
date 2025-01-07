@@ -54,6 +54,7 @@ def logger(message, level='info'):
         logging.error(message)
     print(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {message}")
 
+
 # ========== Dependency Check ==========
 def check_dependencies():
     required = {
@@ -77,6 +78,7 @@ def check_dependencies():
             f"Missing required packages. Install with: pip install {' '.join(missing)}"
         )
 
+
 # ========== Cookie Cleanup ==========
 def cleanup_instagram_cookies():
     cookie_files = [
@@ -92,10 +94,12 @@ def cleanup_instagram_cookies():
             except:
                 pass
 
+
 # ========== Helpers for Generating Device IDs ==========
 def generate_android_device_id():
     """Generate a valid Android device ID."""
     return 'android-' + hashlib.md5(str(time.time()).encode()).hexdigest()[:16]
+
 
 # ========== Manual Login & Instabot Cookie Injection ==========
 def manual_instagram_login(username, password):
@@ -144,6 +148,7 @@ def manual_instagram_login(username, password):
         'guid': uuid_id,
         'login_attempt_count': '0',
         '_uuid': uuid_id,
+        # Use enc_password with a timestamp
         'enc_password': f"#PWD_INSTAGRAM:0:{int(time.time())}:{password}"
     }
 
@@ -164,6 +169,7 @@ def manual_instagram_login(username, password):
     else:
         raise Exception(f"Login failed: {response.status_code} - {response.text}")
 
+
 def inject_cookies_into_instabot(bot, session, cookies):
     """
     Copy session cookies from manual login to instabot's internal session
@@ -179,14 +185,14 @@ def inject_cookies_into_instabot(bot, session, cookies):
         # Mark as logged in
         bot.api.is_logged_in = True
 
-        # We skip direct assignment to read-only properties like user_id
-        # This is enough to let instabot do upload_video()
         logger("Successfully injected cookies into instabot.")
     except Exception as e:
         logger(f"Failed to inject cookies: {e}", level='error')
         raise
 
+
 # ========== Helper Functions for Reading Files & Uploading ==========
+
 def get_processed_videos(folder_path):
     try:
         videos = []
@@ -264,14 +270,43 @@ def prepare_uploads(videos, df):
     return uploads
 
 def upload_single_video(bot, username, upload_details):
+    """Upload a single video with error handling for different instabot versions"""
     try:
         caption = f"{upload_details['description']} {upload_details['hashtags']}"
         video_path = upload_details['video_path']
-        logger(f"Uploading video: {video_path} with instabot")
-        bot.upload_video(video_path, caption=caption)
-        logger(f"Successfully uploaded: {video_path}")
+        logger(f"Uploading video: {video_path}")
+
+        # Some versions of instabot return bool, some return tuple
+        try:
+            uploaded = bot.upload_video(video_path, caption=caption)
+            
+            # Handle different return types
+            if isinstance(uploaded, bool):
+                if not uploaded:
+                    raise Exception("Upload failed - returned False")
+            elif isinstance(uploaded, tuple):
+                status, response = uploaded
+                if not status:
+                    raise Exception(f"Upload failed: {response}")
+                    
+            logger(f"Successfully uploaded: {video_path}")
+            return True
+            
+        except ValueError as e:
+            # Handle unpacking error specifically
+            if "cannot unpack" in str(e):
+                # Try alternate upload method for older versions
+                uploaded = bot.upload_video(video_path, caption)
+                if not uploaded:
+                    raise Exception("Upload failed with legacy method")
+                logger(f"Successfully uploaded with legacy method: {video_path}")
+                return True
+            else:
+                raise
+                
     except Exception as e:
         logger(f"Failed to upload {video_path}: {e}", level='error')
+        return False
 
 def upload_job(bot, username, uploads):
     for upload in uploads:
@@ -698,6 +733,7 @@ class InstagramUploaderGUI(BoxLayout):
 
 
 # ========== Kivy Layout ==========
+
 kv = """
 <LoadDialog>:
     filechooser: filechooser
