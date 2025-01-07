@@ -17,8 +17,14 @@ from kivy.uix.filechooser import FileChooserIconView
 from kivy.uix.button import Button
 from kivy.uix.textinput import TextInput
 from kivy.uix.popup import Popup
-from kivy.properties import StringProperty, ObjectProperty, BooleanProperty
+from kivy.properties import StringProperty, ObjectProperty, BooleanProperty, ListProperty
 from kivy.clock import Clock
+from kivy.uix.recycleview import RecycleView
+from kivy.uix.togglebutton import ToggleButton
+from kivy.uix.recycleview.views import RecycleDataViewBehavior
+from kivy.uix.checkbox import CheckBox
+from kivy.uix.recycleboxlayout import RecycleBoxLayout
+from kivy.uix.recyclegridlayout import RecycleGridLayout
 
 # =========================
 # Configuration and Setup
@@ -43,19 +49,50 @@ def logger(message, level='info'):
 # =========================
 
 def get_processed_videos(folder_path):
-    videos = []
-    for file in os.listdir(folder_path):
-        if file.startswith("processed_") and file.endswith(".mp4"):
-            base_name = file[len("processed_"):-4]  # Remove 'processed_' and '.mp4'
-            videos.append({
-                'full_path': os.path.join(folder_path, file),
-                'base_name': base_name
-            })
-    if not videos:
-        logger("No processed video files found in the selected folder.", level='error')
+    try:
+        videos = []
+        logger(f"Scanning directory: {folder_path}")
+        logger(f"Directory contents: {os.listdir(folder_path)}")
+        
+        for file in os.listdir(folder_path):
+            file_lower = file.lower()
+            # Log each file being checked
+            logger(f"Checking file: {file}")
+            
+            # More flexible pattern matching
+            is_video = file_lower.endswith(('.mp4', '.mov', '.avi'))
+            is_processed = (
+                file_lower.startswith('processed_') or 
+                'processed' in file_lower or 
+                file_lower.startswith('p_')
+            )
+            
+            if is_video:
+                full_path = os.path.join(folder_path, file)
+                if not os.access(full_path, os.R_OK):
+                    logger(f"File not accessible: {full_path}", level='error')
+                    continue
+                    
+                base_name = file
+                if is_processed:
+                    base_name = file[file.find('_')+1:] if '_' in file else file
+                
+                videos.append({
+                    'full_path': full_path,
+                    'base_name': base_name
+                })
+                logger(f"Added video: {base_name}")
+
+        if not videos:
+            logger("No video files found in the selected folder.", level='error')
+            return None
+            
+        logger(f"Found {len(videos)} video(s).")
+        return videos
+        
+    except Exception as e:
+        logger(f"Error scanning directory: {str(e)}", level='error')
         return None
-    logger(f"Found {len(videos)} processed video(s).")
-    return videos
 
 def read_excel(excel_path):
     try:
@@ -122,6 +159,81 @@ class LoadDialog(Popup):
     filechooser = ObjectProperty(None)
     select_folder = BooleanProperty(True)
 
+class VideoItem(RecycleDataViewBehavior, BoxLayout):
+    index = None
+    selected = BooleanProperty(False)
+    selectable = BooleanProperty(True)
+    video_name = StringProperty("")
+    video_path = StringProperty("")
+
+    def refresh_view_attrs(self, rv, index, data):
+        self.index = index
+        self.video_name = data.get('video_name', '')
+        self.video_path = data.get('video_path', '')
+        self.selected = data.get('selected', False)
+        return super(VideoItem, self).refresh_view_attrs(rv, index, data)
+
+    def on_touch_down(self, touch):
+        if self.collide_point(*touch.pos):
+            self.selected = not self.selected
+            self.parent.parent.data[self.index]['selected'] = self.selected
+            logger(f"Video {self.video_name} selection state changed to: {self.selected}")
+            return True
+        return super(VideoItem, self).on_touch_down(touch)
+
+class VideoRecycleView(RecycleView):
+    def __init__(self, **kwargs):
+        super(VideoRecycleView, self).__init__(**kwargs)
+        self.data = []
+
+    def populate_videos(self, videos):
+        if isinstance(videos, list) and videos:
+            # Check if videos is list of dicts or upload details
+            if 'video_path' in videos[0]:  # Upload details format
+                self.data = [{
+                    'video_name': os.path.basename(video['video_path']),
+                    'video_path': video['video_path'],
+                    'selected': False
+                } for video in videos]
+            else:  # Original video list format
+                self.data = [{
+                    'video_name': video['base_name'],
+                    'video_path': video['full_path'],
+                    'selected': False
+                } for video in videos]
+            logger(f"Populated RecycleView with {len(self.data)} videos.")
+        else:
+            logger("Invalid video data format", level='error')
+            self.data = []
+
+    def get_selected_videos(self):
+        selected = [item['video_path'] for item in self.data if item.get('selected', False)]
+        logger(f"Getting selected videos: {len(selected)} videos selected")
+        return selected
+
+class ScheduleItem(RecycleDataViewBehavior, BoxLayout):
+    index = None
+    schedule_time = StringProperty("")
+    num_uploads = StringProperty("")
+    assigned_videos = StringProperty("")  # Changed from ListProperty to StringProperty
+
+    def refresh_view_attrs(self, rv, index, data):
+        self.index = index
+        return super(ScheduleItem, self).refresh_view_attrs(rv, index, data)
+
+class ScheduleRecycleView(RecycleView):
+    def __init__(self, **kwargs):
+        super(ScheduleRecycleView, self).__init__(**kwargs)
+        self.data = []
+
+    def add_schedule(self, schedule_entry):
+        self.data.append({
+            'schedule_time': schedule_entry['time_range'],
+            'num_uploads': str(schedule_entry['num_uploads']),
+            'assigned_videos': ', '.join(schedule_entry['assigned_videos'])
+        })
+        logger(f"Added schedule: {schedule_entry['time_range']} with {schedule_entry['num_uploads']} uploads.")
+
 class InstagramUploaderGUI(BoxLayout):
     video_folder = StringProperty("")
     excel_file = StringProperty("")
@@ -131,6 +243,7 @@ class InstagramUploaderGUI(BoxLayout):
     upload_in_chunks = BooleanProperty(False)
     chunk_size = StringProperty("1")
     is_scheduling = BooleanProperty(False)
+    schedules = ListProperty([])
 
     def __init__(self, **kwargs):
         super(InstagramUploaderGUI, self).__init__(**kwargs)
@@ -148,15 +261,39 @@ class InstagramUploaderGUI(BoxLayout):
                             size_hint=(0.9, 0.9))
         self._popup.open()
 
-    def load(self, path, filename, select_folder=True):
-        if select_folder:
-            self.video_folder = path
-            self.ids.video_folder_label.text = f"Selected Folder: {self.video_folder}"
-        else:
-            if filename:
-                self.excel_file = filename[0]
+    def load(self, path, selection, select_folder=True):
+        try:
+            logger(f"Loading {'folder' if select_folder else 'file'} from path: {path}")
+            logger(f"Selection: {selection}")
+            logger(f"Directory exists: {os.path.exists(path)}")
+            logger(f"Is directory: {os.path.isdir(path)}")
+            
+            if select_folder:
+                if not os.path.isdir(path):
+                    self.show_message("Error", f"Invalid directory path: {path}")
+                    return
+                    
+                self.video_folder = path
+                self.ids.video_folder_label.text = f"Selected Folder: {self.video_folder}"
+                
+                videos = get_processed_videos(self.video_folder)
+                if videos:
+                    self.ids.video_rv.populate_videos(videos)
+                    logger(f"Successfully loaded {len(videos)} videos from folder")
+                else:
+                    self.show_message("Error", "No suitable videos found in the selected folder.")
+            elif selection:
+                self.excel_file = selection[0]
                 self.ids.excel_file_label.text = f"Selected Excel File: {self.excel_file}"
-        self.dismiss_popup()
+                logger(f"Successfully loaded Excel file: {self.excel_file}")
+            else:
+                self.show_message("Error", "No selection made.")
+                
+            self.dismiss_popup()
+            
+        except Exception as e:
+            logger(f"Error in load method: {str(e)}", level='error')
+            self.show_message("Error", f"Failed to load: {str(e)}")
 
     def dismiss_popup(self):
         self._popup.dismiss()
@@ -166,16 +303,16 @@ class InstagramUploaderGUI(BoxLayout):
         self.ids.chunk_size_input.disabled = not self.upload_in_chunks
 
     def authenticate_instagram(self):
-        # Prompt for username and password
-        content = BoxLayout(orientation='vertical')
+        # Prompt for username and password via popup
+        content = BoxLayout(orientation='vertical', spacing=10, padding=10)
         username_input = TextInput(hint_text='Instagram Username', multiline=False)
         password_input = TextInput(hint_text='Instagram Password', multiline=False, password=True)
-        btn_layout = BoxLayout(size_hint_y=None, height=50)
+        btn_layout = BoxLayout(size_hint_y=None, height=40, spacing=10)
         submit_btn = Button(text='Submit')
         cancel_btn = Button(text='Cancel')
         btn_layout.add_widget(submit_btn)
         btn_layout.add_widget(cancel_btn)
-        content.add_widget(Label(text='Enter Instagram Credentials'))
+        content.add_widget(Label(text='Enter Instagram Credentials', size_hint_y=None, height=30))
         content.add_widget(username_input)
         content.add_widget(password_input)
         content.add_widget(btn_layout)
@@ -183,7 +320,7 @@ class InstagramUploaderGUI(BoxLayout):
         popup = Popup(title='Instagram Login',
                       content=content,
                       size_hint=(0.8, 0.6))
-        
+
         def on_submit(instance):
             self.username = username_input.text.strip()
             self.password = password_input.text.strip()
@@ -212,9 +349,9 @@ class InstagramUploaderGUI(BoxLayout):
             logger(f"Failed to login to Instagram: {e}", level='error')
 
     def show_message(self, title, message):
-        content = BoxLayout(orientation='vertical')
+        content = BoxLayout(orientation='vertical', spacing=10, padding=10)
         content.add_widget(Label(text=message))
-        btn = Button(text='OK', size_hint=(1, 0.3))
+        btn = Button(text='OK', size_hint_y=None, height=40)
         content.add_widget(btn)
         popup = Popup(title=title,
                       content=content,
@@ -222,15 +359,7 @@ class InstagramUploaderGUI(BoxLayout):
         btn.bind(on_release=popup.dismiss)
         popup.open()
 
-    def start_upload_process(self):
-        # Validate inputs
-        if not self.video_folder or not self.excel_file:
-            self.show_message("Error", "Please select both video folder and Excel file.")
-            return
-
-        # Authenticate with Instagram
-        self.authenticate_instagram()
-
+    def initiate_uploads(self):
         # Read videos and Excel
         videos = get_processed_videos(self.video_folder)
         if not videos:
@@ -248,90 +377,119 @@ class InstagramUploaderGUI(BoxLayout):
             self.show_message("Error", "No uploads prepared.")
             return
 
-        # Get scheduling preferences
-        try:
-            self.num_uploads_per_day = int(self.num_uploads_per_day)
-            if self.num_uploads_per_day <= 0:
-                raise ValueError
-        except ValueError:
-            self.show_message("Error", "Number of uploads per day must be a positive integer.")
-            return
+        self.show_message("Success", "Uploads have been prepared. You can now upload selected videos or set schedules.")
 
-        # Get time range
-        try:
-            start_time_obj = datetime.strptime(self.start_time, "%H:%M").time()
-            end_time_obj = datetime.strptime(self.end_time, "%H:%M").time()
-            if start_time_obj >= end_time_obj:
-                self.show_message("Error", "Start time must be earlier than end time.")
-                return
-        except ValueError:
-            self.show_message("Error", "Time must be in HH:MM format.")
-            return
-
-        # Check for chunking
-        if self.upload_in_chunks:
-            try:
-                self.chunk_size = int(self.chunk_size)
-                if self.chunk_size <= 0:
-                    raise ValueError
-            except ValueError:
-                self.show_message("Error", "Chunk size must be a positive integer.")
-                return
-
-        # Proceed with scheduling or immediate upload
-        if self.num_uploads_per_day > 0:
-            self.is_scheduling = True
-            Clock.schedule_once(lambda dt: self.setup_scheduler(start_time_obj, end_time_obj), 0)
-        else:
-            self.is_scheduling = False
-            self.perform_uploads()
-
-    def perform_uploads(self):
-        if self.upload_in_chunks:
-            self.upload_in_chunks_method()
-        else:
-            # Immediate upload without chunking
-            threading.Thread(target=upload_job, args=(self.bot, self.username, self.uploads)).start()
-            self.show_message("Success", "Uploads have been initiated.")
-
-    def upload_in_chunks_method(self):
-        chunk_size = self.chunk_size
-        chunks = [self.uploads[i:i + chunk_size] for i in range(0, len(self.uploads), chunk_size)]
-        def upload_chunk(chunk, idx):
-            logger(f"Uploading chunk {idx + 1}/{len(chunks)} with {len(chunk)} video(s).")
-            upload_job(self.bot, self.username, chunk)
-            logger(f"Chunk {idx + 1} uploaded successfully.")
+    def upload_now(self):
+        # Get selected videos using the new method
+        selected_videos = self.ids.video_rv.get_selected_videos()
+        logger(f"Attempting to upload {len(selected_videos)} selected videos")
         
-        for idx, chunk in enumerate(chunks):
-            threading.Thread(target=upload_chunk, args=(chunk, idx+1)).start()
-            time.sleep(5)  # Delay between chunks to avoid rate limiting
-        self.show_message("Success", "All chunks have been uploaded.")
+        if not selected_videos:
+            self.show_message("Error", "No videos selected for upload.")
+            return
 
-    def setup_scheduler(self, start_time, end_time):
-        total_uploads = len(self.uploads)
-        num_per_day = self.num_uploads_per_day
-        days_needed = (total_uploads // num_per_day) + (1 if total_uploads % num_per_day else 0)
-        logger(f"Scheduling uploads over {days_needed} day(s).")
+        # Filter uploads
+        uploads_to_upload = [upload for upload in self.uploads if upload['video_path'] in selected_videos]
+        
+        if not uploads_to_upload:
+            self.show_message("Error", "No matching uploads found for selected videos.")
+            return
 
-        uploads_iter = iter(self.uploads)
+        threading.Thread(target=upload_job, args=(self.bot, self.username, uploads_to_upload)).start()
+        self.show_message("Success", f"Uploading {len(uploads_to_upload)} videos.")
 
-        for day in range(days_needed):
-            for i in range(num_per_day):
-                try:
-                    upload = next(uploads_iter)
-                    # Calculate scheduled time
-                    interval = (datetime.combine(datetime.today(), end_time) - 
-                                datetime.combine(datetime.today(), start_time))
-                    interval_seconds = interval.total_seconds() / num_per_day
-                    scheduled_time = (datetime.combine(datetime.today(), start_time) + 
-                                      timedelta(seconds=interval_seconds * i)).time()
-                    # Format time as HH:MM
-                    time_str = scheduled_time.strftime("%H:%M")
-                    # Schedule the upload
-                    schedule.every().day.at(time_str).do(upload_single_video, self.bot, self.username, upload)
-                    logger(f"Scheduled upload for {upload['video_path']} at {time_str} daily.")
-                except StopIteration:
-                    break
+    def add_schedule(self):
+        if not self.uploads:
+            self.show_message("Error", "Please initiate uploads first.")
+            return
+
+        content = BoxLayout(orientation='vertical', spacing=10, padding=10)
+        
+        # Time inputs in horizontal layout
+        time_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=40)
+        start_time_input = TextInput(hint_text='Start Time (HH:MM)', multiline=False)
+        end_time_input = TextInput(hint_text='End Time (HH:MM)', multiline=False)
+        time_layout.add_widget(start_time_input)
+        time_layout.add_widget(end_time_input)
+        
+        num_uploads_input = TextInput(
+            hint_text='Number of Uploads',
+            multiline=False,
+            input_filter='int',
+            size_hint_y=None,
+            height=40
+        )
+        
+        # Video selection with scrollview
+        video_selection_rv = VideoRecycleView(size_hint_y=None, height=200)
+        video_selection_rv.populate_videos(self.uploads)
+
+        # Add widgets to content
+        content.add_widget(Label(text='Add New Schedule', font_size=18, size_hint_y=None, height=30))
+        content.add_widget(time_layout)
+        content.add_widget(num_uploads_input)
+        content.add_widget(Label(text='Select Videos:', size_hint_y=None, height=30))
+        content.add_widget(video_selection_rv)
+        
+        # Button layout
+        btn_layout = BoxLayout(size_hint_y=None, height=40, spacing=10)
+        submit_btn = Button(text='Add Schedule')
+        cancel_btn = Button(text='Cancel')
+        btn_layout.add_widget(submit_btn)
+        btn_layout.add_widget(cancel_btn)
+        content.add_widget(btn_layout)
+
+        popup = Popup(title='Add Schedule', content=content, size_hint=(0.9, 0.9))
+
+        def on_submit(instance):
+            selected_videos = video_selection_rv.get_selected_videos()
+            logger(f"Schedule submission - Selected videos: {len(selected_videos)}")
+            
+            # ... rest of the submission logic ...
+
+        def on_cancel(instance):
+            popup.dismiss()
+
+        submit_btn.bind(on_release=on_submit)
+        cancel_btn.bind(on_release=on_cancel)
+
+        popup.open()
+
+    def calculate_rv_height(self, num_items):
+        return num_items * 40 if num_items * 40 < 300 else 300
+
+    def setup_scheduler(self):
+        if not self.schedules:
+            self.show_message("Error", "No schedules to set up.")
+            return
+
+        for schedule_entry in self.schedules:
+            time_range = schedule_entry['time_range']
+            start_time = schedule_entry['start_time']
+            end_time = schedule_entry['end_time']
+            num_uploads = schedule_entry['num_uploads']
+            assigned_videos = schedule_entry['assigned_videos']
+
+            # Calculate the interval between uploads within the time range
+            interval = (datetime.combine(datetime.today(), end_time) - 
+                        datetime.combine(datetime.today(), start_time))
+            if num_uploads > 0:
+                interval_seconds = interval.total_seconds() / num_uploads
+            else:
+                interval_seconds = 0
+
+            for i in range(num_uploads):
+                scheduled_time = (datetime.combine(datetime.today(), start_time) + 
+                                  timedelta(seconds=interval_seconds * i)).time()
+                time_str = scheduled_time.strftime("%H:%M")
+                # Schedule the upload
+                # Ensure index does not go out of range
+                if i < len(assigned_videos):
+                    video_path = assigned_videos[i]
+                else:
+                    video_path = assigned_videos[-1]
+                schedule.every().day.at(time_str).do(upload_single_video, self.bot, self.username, next((upload for upload in self.uploads if upload['video_path'] == video_path), None))
+                logger(f"Scheduled upload for {video_path} at {time_str}.")
 
         # Start the scheduler in a separate thread
         if not self.scheduler_thread or not self.scheduler_thread.is_alive():
@@ -339,11 +497,16 @@ class InstagramUploaderGUI(BoxLayout):
             self.scheduler_thread.daemon = True
             self.scheduler_thread.start()
             logger("Scheduler started.")
-        self.show_message("Success", "Uploads have been scheduled.")
 
-class InstagramUploaderApp(App):
-    def build(self):
-        return InstagramUploaderGUI()
+        self.show_message("Success", "All schedules have been set up.")
+
+    def upload_scheduled_videos(self, video_path):
+        # Find the upload details for the video
+        upload_details = next((upload for upload in self.uploads if upload['video_path'] == video_path), None)
+        if upload_details:
+            upload_single_video(self.bot, self.username, upload_details)
+        else:
+            logger(f"No upload details found for video: {video_path}", level='error')
 
 # =========================
 # Kivy UI Definitions
@@ -353,12 +516,14 @@ from kivy.lang import Builder
 
 kv = """
 <LoadDialog>:
+    filechooser: filechooser  # Bind the filechooser property
     BoxLayout:
         orientation: 'vertical'
         FileChooserIconView:
             id: filechooser
             filters: ["*/"] if root.select_folder else ["*.xlsx", "*.xls"]
             path: root.initial_path if hasattr(root, 'initial_path') else '.'
+            select_dirs: root.select_folder  # Enable directory selection when needed
         BoxLayout:
             size_hint_y: None
             height: 40
@@ -370,6 +535,57 @@ kv = """
             Button:
                 text: "Cancel"
                 on_release: root.cancel()
+                
+<VideoItem>:
+    orientation: 'horizontal'
+    size_hint_y: None
+    height: 40
+    padding: 5
+    spacing: 10
+    canvas.before:
+        Color:
+            rgba: 0.9, 0.9, 1, 1 if self.selected else 1, 1, 1, 1
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    CheckBox:
+        id: checkbox
+        active: root.selected
+        on_active: 
+            root.selected = self.active
+            root.parent.parent.data[root.index]['selected'] = self.active if root.parent else False
+
+    Label:
+        text: root.video_name if root.video_name else 'No name'
+        halign: "left"
+        valign: "middle"
+        text_size: self.size
+
+<ScheduleItem>:
+    orientation: 'horizontal'
+    size_hint_y: None
+    height: 40
+    padding: 5
+    spacing: 10
+
+    Label:
+        text: root.schedule_time
+        halign: "left"
+        valign: "middle"
+        text_size: self.size
+
+    Label:
+        text: root.num_uploads
+        halign: "center"
+        valign: "middle"
+        text_size: self.size
+
+    Label:
+        text: root.assigned_videos
+        halign: "left"
+        valign: "middle"
+        text_size: self.size
 
 <InstagramUploaderGUI>:
     orientation: 'vertical'
@@ -385,7 +601,7 @@ kv = """
     BoxLayout:
         orientation: 'vertical'
         size_hint_y: None
-        height: 150
+        height: 200
         spacing: 10
 
         BoxLayout:
@@ -417,81 +633,92 @@ kv = """
                 valign: "middle"
 
     BoxLayout:
-        orientation: 'vertical'
+        orientation: 'horizontal'
         spacing: 10
+        size_hint_y: None
+        height: 50
 
-        Label:
-            text: "Scheduling Preferences"
-            font_size: 18
+        Button:
+            text: "Authenticate Instagram"
+            on_release: root.authenticate_instagram()
+        Button:
+            text: "Initiate Uploads"
+            on_release: root.initiate_uploads()
+
+    Label:
+        text: "Select Videos to Upload:"
+        font_size: 18
+        size_hint_y: None
+        height: 30
+
+    VideoRecycleView:
+        id: video_rv
+        viewclass: 'VideoItem'
+        RecycleBoxLayout:
+            default_size: None, dp(40)
+            default_size_hint: 1, None
             size_hint_y: None
-            height: 30
-
-        BoxLayout:
-            orientation: 'horizontal'
-            spacing: 10
-
-            Label:
-                text: "Uploads per Day:"
-                size_hint_x: 0.4
-            TextInput:
-                id: uploads_per_day
-                text: root.num_uploads_per_day
-                multiline: False
-                input_filter: 'int'
-                on_text: root.num_uploads_per_day = self.text
-
-        BoxLayout:
-            orientation: 'horizontal'
-            spacing: 10
-
-            Label:
-                text: "Start Time (HH:MM):"
-                size_hint_x: 0.4
-            TextInput:
-                id: start_time
-                text: root.start_time
-                multiline: False
-                input_filter: 'int'
-                on_text: root.start_time = self.text
-
-        BoxLayout:
-            orientation: 'horizontal'
-            spacing: 10
-
-            Label:
-                text: "End Time (HH:MM):"
-                size_hint_x: 0.4
-            TextInput:
-                id: end_time
-                text: root.end_time
-                multiline: False
-                input_filter: 'int'
-                on_text: root.end_time = self.text
+            height: self.minimum_height
+            orientation: 'vertical'
 
     BoxLayout:
         orientation: 'horizontal'
+        spacing: 10
         size_hint_y: None
         height: 50
+
+        Button:
+            text: "Upload Now"
+            on_release: root.upload_now()
+        Button:
+            text: "Add Schedule"
+            on_release: root.add_schedule()
+        Button:
+            text: "Setup Scheduler"
+            on_release: root.setup_scheduler()
+
+    Label:
+        text: "Schedules:"
+        font_size: 18
+        size_hint_y: None
+        height: 30
+
+    ScheduleRecycleView:
+        id: schedule_rv
+        viewclass: 'ScheduleItem'
+        RecycleBoxLayout:
+            default_size: None, dp(40)
+            default_size_hint: 1, None
+            size_hint_y: None
+            height: self.minimum_height
+            orientation: 'vertical'
+
+    BoxLayout:
+        orientation: 'horizontal'
         spacing: 10
-        padding: 10
+        size_hint_y: None
+        height: 50
 
         ToggleButton:
             text: "Enable Chunk Uploading"
             state: 'down' if root.upload_in_chunks else 'normal'
             on_state: root.toggle_chunking(self, self.state == 'down')
+
+        Label:
+            text: "Chunk Size:"
+            size_hint_x: 0.3
+            halign: "left"
+            valign: "middle"
+            text_size: self.size
+
         TextInput:
             id: chunk_size_input
             text: root.chunk_size
             multiline: False
             input_filter: 'int'
             disabled: not root.upload_in_chunks
-            hint_text: "Chunk Size"
-
-    Button:
-        text: "Start Upload"
-        size_hint_y: None
-        height: 50
-        on_release: root.start_upload_process()
+            hint_text: "Number of Videos per Chunk"
+            size_hint_x: 0.2  # Increased width for better visibility
 
     Label:
         text: "© 2025 Instagram Uploader"
@@ -504,6 +731,10 @@ Builder.load_string(kv)
 # =========================
 # Main Execution Flow
 # =========================
+
+class InstagramUploaderApp(App):
+    def build(self):
+        return InstagramUploaderGUI()
 
 def main():
     InstagramUploaderApp().run()
