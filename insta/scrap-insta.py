@@ -408,7 +408,8 @@ def main():
     posts_to_download = []
     download_type = "as they appear"
     source_name = "Unknown"
-    # We'll store these to differentiate
+    target = ""  # Initialize target variable
+
     if source_choice == '1':
         profile_username = input("Enter the Instagram username: ").strip()
         source_name = f"Profile '{profile_username}'"
@@ -539,10 +540,82 @@ def main():
         print("\nDone.")
 
     elif source_choice == '2':
-        # [Hashtag download logic remains unchanged]
-        # Similar to profile download, handle the renaming phase after downloads
-        # ...
-        # After download_posts:
+        hashtag = input("Enter the hashtag (without #): ").strip()
+        source_name = f"Hashtag '#{hashtag}'"
+        target = f"hashtag_{hashtag}"  # Set target directory for hashtag
+        
+        try:
+            hashtag_posts = Hashtag.from_name(L.context, hashtag)
+        except Exception as e:
+            log_message(f"Error fetching hashtag: {e}", "error", False)
+            sys.exit(1)
+
+        # How many videos?
+        num_choice = input("How many videos to download? (10/20/40/80/100): ").strip()
+        num_videos = int(num_choice) if num_choice.isdigit() else 10
+
+        # Filter options
+        print("\nFilter Options:")
+        print("1: No filter")
+        print("2: Most liked")
+        print("3: Most viewed")
+        print("4: Latest uploaded")
+        filter_choice = input("Enter filter (1/2/3/4): ").strip()
+
+        print("\nAspect Ratio options (multiple allowed, e.g., '1 2' => 1:1 & 9:16):")
+        print("1: 1:1")
+        print("2: 9:16")
+        print("3: 16:9")
+        print("4: All")
+        ratio_input = input("Enter your choice(s): ").strip().split()
+        ratio_map = {'1': '1:1', '2': '9:16', '3': '16:9'}
+        desired_ratios = [ratio_map[r] for r in ratio_input if r in ratio_map]
+        if not desired_ratios or '4' in ratio_input:
+            desired_ratios = ["1:1", "9:16", "16:9"]
+
+        # Concurrency
+        concurrency_str = input("Enter concurrency (number of threads, e.g., 1/2/4): ").strip()
+        concurrency = int(concurrency_str) if concurrency_str.isdigit() and int(concurrency_str) > 0 else 1
+
+        # Dry run
+        dry_run = input("Do a dry run (no actual downloads)? (y/n): ").strip().lower() == 'y'
+        
+        # Silent mode
+        silent = input("Silent mode (less console output)? (y/n): ").strip().lower() == 'y'
+
+        # Collect videos
+        log_message("Fetching videos from hashtag...", "info", silent)
+        all_videos = []
+        try:
+            for post in tqdm(hashtag_posts.get_posts(), desc="Fetching posts", unit="post"):
+                if post.is_video:
+                    all_videos.append(post)
+                    if len(all_videos) >= num_videos and filter_choice == '1':
+                        break
+        except Exception as e:
+            log_message(f"Error fetching posts: {e}", "error", silent)
+            sys.exit(1)
+
+        log_message(f"Found {len(all_videos)} videos total", "info", silent)
+
+        # Apply filter
+        if filter_choice == '2':
+            all_videos.sort(key=lambda p: p.likes or 0, reverse=True)
+            download_type = "most liked"
+        elif filter_choice == '3':
+            all_videos.sort(key=lambda p: p.video_view_count or 0, reverse=True)
+            download_type = "most viewed"
+        elif filter_choice == '4':
+            all_videos.sort(key=lambda p: p.date_utc, reverse=True)
+            download_type = "latest"
+
+        posts_to_download = all_videos[:num_videos]
+        
+        if not posts_to_download:
+            log_message("No videos match your criteria.", "error", silent)
+            sys.exit(0)
+
+        # Download posts
         downloaded, file_names = download_posts(
             L=L,
             posts=posts_to_download,
@@ -556,7 +629,6 @@ def main():
 
         if downloaded and not dry_run:
             # Rename Phase
-            log_message("Starting renaming phase...", "info", silent)
             renamed_files = rename_videos(
                 downloaded_posts=downloaded,
                 downloaded_files=file_names,
@@ -565,7 +637,7 @@ def main():
                 silent=silent
             )
 
-            # Create Excel file in the target directory
+            # Create Excel file
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             excel_filename = f"video_data_{timestamp}.xlsx"
             excel_path = os.path.join(target, excel_filename)
@@ -575,29 +647,12 @@ def main():
                 log_message(f"\nExcel file location: {final_path}", "success", silent)
             except Exception as e:
                 log_message(f"Failed to create Excel file: {e}", "error", silent)
-        print("\nDone.")
 
     else:
         print("Invalid choice. Exiting.")
         sys.exit(1)
 
-
-        if downloaded and not dry_run:
-            # Create Excel file in the target directory
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            excel_filename = f"video_data_{timestamp}.xlsx"
-            excel_path = os.path.join(target, excel_filename)
-            
-            try:
-                final_path = export_to_excel(downloaded, file_names, excel_path, silent)
-                log_message(f"\nExcel file location: {final_path}", "success", silent)
-            except Exception as e:
-                log_message(f"Failed to create Excel file: {e}", "error", silent)
-        print("\nDone.")
-
-    # else:
-    #     print("Invalid choice. Exiting.")
-    #     sys.exit(1)
+    print("\nDone.")
 
 
 if __name__ == "__main__":
