@@ -9,6 +9,7 @@ from pathlib import Path
 from instabot import Bot
 import threading
 import logging
+import glob  # Add this import
 
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
@@ -43,6 +44,41 @@ def logger(message, level='info'):
     elif level == 'error':
         logging.error(message)
     print(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {message}")
+
+# Add dependency check at the start
+def check_dependencies():
+    required = {
+        'instabot': 'instabot',
+        'kivy': 'kivy',
+        'pandas': 'pandas',
+        'openpyxl': 'openpyxl'
+    }
+    missing = []
+    for package, pip_name in required.items():
+        try:
+            __import__(package)
+            logger(f"Package {package} is installed")
+        except ImportError:
+            missing.append(pip_name)
+            logger(f"Missing required package: {pip_name}", level='error')
+    
+    if missing:
+        raise ImportError(f"Missing required packages. Install with: pip install {' '.join(missing)}")
+
+# Add at the start after imports
+def cleanup_instagram_cookies():
+    cookie_files = [
+        'config/skhr_uuid_and_cookie.json',
+        'config/skhr.checkpoint',
+        'config/*.json'
+    ]
+    for pattern in cookie_files:
+        for f in glob.glob(pattern):
+            try:
+                os.remove(f)
+                logger(f"Removed cookie file: {f}")
+            except:
+                pass
 
 # =========================
 # Helper Functions
@@ -168,7 +204,10 @@ class VideoItem(RecycleDataViewBehavior, BoxLayout):
 
     def refresh_view_attrs(self, rv, index, data):
         self.index = index
-        self.video_name = data.get('video_name', '')
+        # Ensure video name is properly set
+        name = data.get('video_name', '')
+        logger(f"Setting video name in item: {name}")
+        self.video_name = name
         self.video_path = data.get('video_path', '')
         self.selected = data.get('selected', False)
         return super(VideoItem, self).refresh_view_attrs(rv, index, data)
@@ -181,30 +220,53 @@ class VideoItem(RecycleDataViewBehavior, BoxLayout):
             return True
         return super(VideoItem, self).on_touch_down(touch)
 
+# Update VideoRecycleView class
 class VideoRecycleView(RecycleView):
     def __init__(self, **kwargs):
         super(VideoRecycleView, self).__init__(**kwargs)
         self.data = []
 
     def populate_videos(self, videos):
-        if isinstance(videos, list) and videos:
-            # Check if videos is list of dicts or upload details
-            if 'video_path' in videos[0]:  # Upload details format
-                self.data = [{
-                    'video_name': os.path.basename(video['video_path']),
-                    'video_path': video['video_path'],
-                    'selected': False
-                } for video in videos]
-            else:  # Original video list format
-                self.data = [{
-                    'video_name': video['base_name'],
-                    'video_path': video['full_path'],
-                    'selected': False
-                } for video in videos]
-            logger(f"Populated RecycleView with {len(self.data)} videos.")
-        else:
-            logger("Invalid video data format", level='error')
+        if not videos:
+            logger("No videos to populate", level='error')
+            return
+
+        try:
             self.data = []
+            for video in videos:
+                # Enhanced video name extraction
+                if isinstance(video, dict):
+                    # First try to get base_name
+                    name = video.get('base_name', '')
+                    
+                    # If no base_name, try video_path or full_path
+                    if not name:
+                        path = video.get('video_path', video.get('full_path', ''))
+                        if path:
+                            name = os.path.basename(path)
+                            name = os.path.splitext(name)[0]  # Remove extension
+                            
+                    # Clean up the name
+                    name = name.replace('processed_', '')
+                    logger(f"Processing video name: {name}")
+                    
+                    path = video.get('video_path', video.get('full_path', ''))
+                    
+                    entry = {
+                        'video_name': name or 'Unnamed Video',
+                        'video_path': path,
+                        'selected': False
+                    }
+                    self.data.append(entry)
+                    logger(f"Added video to list with name: {entry['video_name']}")
+            
+            logger(f"Populated RecycleView with {len(self.data)} videos")
+            # Debug log the entire data structure
+            for item in self.data:
+                logger(f"Video in list: {item['video_name']}")
+                
+        except Exception as e:
+            logger(f"Error populating videos: {e}", level='error')
 
     def get_selected_videos(self):
         selected = [item['video_path'] for item in self.data if item.get('selected', False)]
@@ -335,18 +397,54 @@ class InstagramUploaderGUI(BoxLayout):
 
         popup.open()
 
+    # Update login_instagram method
     def login_instagram(self):
         if not self.username or not self.password:
             self.show_message("Error", "Username or Password cannot be empty.")
             return
-        self.bot = Bot()
+
         try:
-            self.bot.login(username=self.username, password=self.password)
-            self.show_message("Success", "Logged in to Instagram successfully.")
-            logger("Logged in to Instagram successfully.")
+            # Clean up old cookies
+            cleanup_instagram_cookies()
+            
+            # Initialize bot with settings
+            self.bot = Bot()
+            
+            # Set API settings before login
+            self.bot.api.device_settings = {
+                'manufacturer': 'samsung',
+                'model': 'SM-G991B',
+                'android_version': 31,
+                'android_release': '12'
+            }
+            
+            self.bot.api.user_agent = (
+                "Instagram 266.0.0.19.301 Android "
+                "(31/12; 420dpi; 1080x2400; samsung; SM-G991B; o1s; exynos2100)"
+            )
+            
+            # Attempt login
+            login_attempt = self.bot.login(
+                username=self.username,
+                password=self.password,
+                force=True,
+                use_cookie=False
+            )
+            
+            if login_attempt:
+                self.show_message("Success", "Logged in successfully!")
+                logger("Instagram login successful")
+            else:
+                self.bot = None
+                raise Exception("Login failed - please verify credentials")
+                
         except Exception as e:
-            self.show_message("Error", f"Failed to login to Instagram: {e}")
-            logger(f"Failed to login to Instagram: {e}", level='error')
+            self.bot = None
+            error_msg = str(e)
+            if "update Instagram" in error_msg:
+                error_msg = "Please update Instagram API version. Try clearing cookies and restarting."
+            self.show_message("Error", f"Login failed: {error_msg}")
+            logger(f"Instagram login failed: {error_msg}", level='error')
 
     def show_message(self, title, message):
         content = BoxLayout(orientation='vertical', spacing=10, padding=10)
@@ -380,23 +478,43 @@ class InstagramUploaderGUI(BoxLayout):
         self.show_message("Success", "Uploads have been prepared. You can now upload selected videos or set schedules.")
 
     def upload_now(self):
-        # Get selected videos using the new method
+        if not self.bot:
+            self.show_message("Error", "Please authenticate with Instagram first")
+            return
+
+        if not self.uploads:
+            self.show_message("Error", "Please initiate uploads first")
+            return
+
         selected_videos = self.ids.video_rv.get_selected_videos()
-        logger(f"Attempting to upload {len(selected_videos)} selected videos")
+        logger(f"Selected videos for upload: {len(selected_videos)}")
         
         if not selected_videos:
             self.show_message("Error", "No videos selected for upload.")
             return
 
-        # Filter uploads
-        uploads_to_upload = [upload for upload in self.uploads if upload['video_path'] in selected_videos]
-        
+        # Filter uploads and verify they exist
+        uploads_to_upload = []
+        for upload in self.uploads:
+            if upload['video_path'] in selected_videos:
+                if os.path.exists(upload['video_path']):
+                    uploads_to_upload.append(upload)
+                else:
+                    logger(f"Video file not found: {upload['video_path']}", level='error')
+
         if not uploads_to_upload:
-            self.show_message("Error", "No matching uploads found for selected videos.")
+            self.show_message("Error", "No valid videos found for upload.")
             return
 
-        threading.Thread(target=upload_job, args=(self.bot, self.username, uploads_to_upload)).start()
-        self.show_message("Success", f"Uploading {len(uploads_to_upload)} videos.")
+        # Start upload in thread
+        upload_thread = threading.Thread(
+            target=upload_job,
+            args=(self.bot, self.username, uploads_to_upload)
+        )
+        upload_thread.daemon = True
+        upload_thread.start()
+        
+        self.show_message("Success", f"Started uploading {len(uploads_to_upload)} videos.")
 
     def add_schedule(self):
         if not self.uploads:
@@ -539,9 +657,9 @@ kv = """
 <VideoItem>:
     orientation: 'horizontal'
     size_hint_y: None
-    height: 40
-    padding: 5
-    spacing: 10
+    height: 50
+    padding: 10
+    spacing: 15
     canvas.before:
         Color:
             rgba: 0.9, 0.9, 1, 1 if self.selected else 1, 1, 1, 1
@@ -551,16 +669,23 @@ kv = """
 
     CheckBox:
         id: checkbox
+        size_hint_x: None
+        width: 30
         active: root.selected
         on_active: 
             root.selected = self.active
-            root.parent.parent.data[root.index]['selected'] = self.active if root.parent else False
+            if root.parent: root.parent.parent.data[root.index]['selected'] = self.active
 
     Label:
         text: root.video_name if root.video_name else 'No name'
-        halign: "left"
-        valign: "middle"
+        color: 0, 0, 0, 1  # Black text
         text_size: self.size
+        halign: 'left'
+        valign: 'middle'
+        shorten: True
+        shorten_from: 'right'
+        size_hint_x: 1
+        font_size: '14sp'  # Explicit font size
 
 <ScheduleItem>:
     orientation: 'horizontal'
@@ -736,8 +861,14 @@ class InstagramUploaderApp(App):
     def build(self):
         return InstagramUploaderGUI()
 
+# Update main to include dependency check
 def main():
-    InstagramUploaderApp().run()
+    try:
+        check_dependencies()
+        InstagramUploaderApp().run()
+    except Exception as e:
+        print(f"Error starting application: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
