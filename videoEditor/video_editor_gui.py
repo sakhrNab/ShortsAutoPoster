@@ -485,11 +485,12 @@ class PreviewPanel:
         return self.current_settings
 
 class TextOverlayDialog:
-    def __init__(self, parent, callback):
+    def __init__(self, parent, callback, preview_callback=None):
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("Text Overlays")
         self.dialog.geometry("600x400")
         self.callback = callback
+        self.preview_callback = preview_callback  # Add preview callback
         self.overlays = []
         self.dragging = False
         self.drag_source_index = None
@@ -627,7 +628,8 @@ class TextOverlayDialog:
             self.overlay_list.insert(tk.END, f"{idx + 1}. {overlay['text']} ({overlay['position']})")
 
     def add_overlay(self):
-        dialog = TextOverlaySettingsDialog(self.dialog)
+        dialog = TextOverlaySettingsDialog(self.dialog, 
+                                         preview_callback=self.on_preview_update)
         self.dialog.wait_window(dialog.dialog)
         if dialog.result:
             self.overlays.append(dialog.result)
@@ -638,7 +640,9 @@ class TextOverlayDialog:
         sel = self.overlay_list.curselection()
         if sel and sel[0] < len(self.overlays):  # Add bounds check
             idx = sel[0]
-            dialog = TextOverlaySettingsDialog(self.dialog, self.overlays[idx])
+            dialog = TextOverlaySettingsDialog(self.dialog, 
+                                             self.overlays[idx],
+                                             preview_callback=self.on_preview_update)
             self.dialog.wait_window(dialog.dialog)
             if dialog.result:
                 self.overlays[idx] = dialog.result
@@ -660,6 +664,23 @@ class TextOverlayDialog:
 
     def ok(self):
         self.dialog.destroy()
+
+    def on_preview_update(self, current_settings):
+        """Handle preview updates during text overlay editing"""
+        if self.preview_callback:
+            # Create temporary overlay list with current edit
+            temp_overlays = self.overlays.copy()
+            sel = self.overlay_list.curselection()
+            if sel:
+                idx = sel[0]
+                if idx < len(temp_overlays):
+                    temp_overlays[idx] = current_settings
+                else:
+                    temp_overlays.append(current_settings)
+            else:
+                temp_overlays.append(current_settings)
+            
+            self.preview_callback(temp_overlays)
 
 class ColorPickerDialog:
     def __init__(self, parent, initial_color="#FFFFFF"):
@@ -699,14 +720,17 @@ class ColorPickerDialog:
         return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
 
 class TextOverlaySettingsDialog:
-    def __init__(self, parent, settings=None):
+    def __init__(self, parent, settings=None, preview_callback=None):
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("Text Overlay Settings")
         self.dialog.geometry("400x500")
         self.result = None
-        # Move get_system_fonts call here
+        self.preview_callback = preview_callback
         self.available_fonts = self.get_system_fonts()
+        self.widgets_ready = False  # Add this flag
         self.create_widgets(settings)
+        self.widgets_ready = True  # Set flag after widgets are created
+        self.update_color_previews()  # Move this here
 
     def get_system_fonts(self):
         """Get list of available system fonts using cv2"""
@@ -730,6 +754,8 @@ class TextOverlaySettingsDialog:
         self.text.pack(fill='x', padx=5)
         if settings.get('text'):
             self.text.insert('1.0', settings['text'])
+        # Add binding for text changes
+        self.text.bind('<KeyRelease>', self.on_setting_changed)
 
         # Font settings frame
         font_frame = ttk.LabelFrame(self.dialog, text="Font Settings", padding="5")
@@ -741,7 +767,7 @@ class TextOverlaySettingsDialog:
         self.font.pack(fill='x', padx=5)
         self.font.set(settings.get('font', 'Arial'))
 
-        # Font size
+        # Font size with real-time updates
         ttk.Label(font_frame, text="Font Size:").pack(pady=2)
         size_frame = ttk.Frame(font_frame)
         size_frame.pack(fill='x', padx=5)
@@ -750,11 +776,11 @@ class TextOverlaySettingsDialog:
         self.font_size.pack(side='left', fill='x', expand=True)
         self.font_size.insert(0, str(settings.get('font_size', 24)))
         
-        # Size adjustment buttons
+        # Size adjustment buttons with immediate preview updates
         ttk.Button(size_frame, text="-", width=3, 
-                  command=lambda: self.adjust_font_size(-2)).pack(side='left', padx=2)
+                  command=lambda: self.adjust_font_size(-2, update_preview=True)).pack(side='left', padx=2)
         ttk.Button(size_frame, text="+", width=3,
-                  command=lambda: self.adjust_font_size(2)).pack(side='left')
+                  command=lambda: self.adjust_font_size(2, update_preview=True)).pack(side='left')
 
         # Style options
         style_frame = ttk.Frame(font_frame)
@@ -772,7 +798,7 @@ class TextOverlaySettingsDialog:
         colors_frame = ttk.LabelFrame(self.dialog, text="Colors", padding="5")
         colors_frame.pack(fill='x', padx=5, pady=5)
 
-        # Text color row
+        # Text color row with immediate preview
         text_color_frame = ttk.Frame(colors_frame)
         text_color_frame.pack(fill='x', padx=5, pady=2)
         ttk.Label(text_color_frame, text="Text Color:").pack(side='left')
@@ -787,7 +813,7 @@ class TextOverlaySettingsDialog:
         ttk.Button(text_color_frame, text="Pick", 
                   command=self.pick_text_color).pack(side='left', padx=5)
 
-        # Background color row
+        # Background color row with immediate preview
         bg_color_frame = ttk.Frame(colors_frame)
         bg_color_frame.pack(fill='x', padx=5, pady=2)
         ttk.Label(bg_color_frame, text="Background Color:").pack(side='left')
@@ -830,10 +856,30 @@ class TextOverlaySettingsDialog:
         ttk.Button(btn_frame, text="OK", command=self.ok).pack(side='right', padx=5)
         ttk.Button(btn_frame, text="Cancel", command=self.cancel).pack(side='right')
 
+        # Add change event bindings to all inputs
+        self.font.bind('<<ComboboxSelected>>', self.on_setting_changed)
+        self.font_size.bind('<KeyRelease>', self.on_setting_changed)
+        self.color.bind('<KeyRelease>', self.on_setting_changed)
+        self.bg_color.bind('<KeyRelease>', self.on_setting_changed)
+        self.bg_opacity.bind('<KeyRelease>', self.on_setting_changed)
+        self.position.bind('<<ComboboxSelected>>', self.on_setting_changed)
+        self.margin.bind('<KeyRelease>', self.on_setting_changed)
+        
+        # Add trace to boolean variables
+        self.bold.trace_add("write", self.on_bool_changed)
+        self.italic.trace_add("write", self.on_bool_changed)
+
     def update_color_previews(self):
-        """Update the color preview swatches"""
-        self.text_color_preview.configure(bg=self.color.get())
-        self.bg_color_preview.configure(bg=self.bg_color.get())
+        """Update the color preview swatches and trigger preview update"""
+        if not self.widgets_ready:  # Check if widgets are ready
+            return
+        try:
+            self.text_color_preview.configure(bg=self.color.get())
+            self.bg_color_preview.configure(bg=self.bg_color.get())
+            # Add immediate preview update
+            self.on_setting_changed(None)
+        except tk.TclError:
+            pass  # Invalid color format
 
     def pick_text_color(self):
         """Open color picker for text color"""
@@ -842,6 +888,8 @@ class TextOverlaySettingsDialog:
             self.color.delete(0, tk.END)
             self.color.insert(0, dialog.result)
             self.update_color_previews()
+            # Add immediate preview update
+            self.on_setting_changed(None)
 
     def pick_bg_color(self):
         """Open color picker for background color"""
@@ -850,14 +898,18 @@ class TextOverlaySettingsDialog:
             self.bg_color.delete(0, tk.END)
             self.bg_color.insert(0, dialog.result)
             self.update_color_previews()
+            # Add immediate preview update
+            self.on_setting_changed(None)
 
-    def adjust_font_size(self, delta):
+    def adjust_font_size(self, delta, update_preview=False):
         """Adjust font size by delta amount"""
         try:
             current = int(self.font_size.get())
             new_size = max(8, min(72, current + delta))  # Limit size between 8 and 72
             self.font_size.delete(0, tk.END)
             self.font_size.insert(0, str(new_size))
+            if update_preview:
+                self.on_setting_changed(None)
         except ValueError:
             pass
 
@@ -881,6 +933,39 @@ class TextOverlaySettingsDialog:
 
     def cancel(self):
         self.dialog.destroy()
+
+    def on_bool_changed(self, *args):
+        """Handle changes in boolean variables"""
+        self.on_setting_changed(None)
+
+    def on_setting_changed(self, event):
+        """Update preview when any setting changes"""
+        if not self.widgets_ready:  # Check if widgets are ready
+            return
+        try:
+            current_settings = self.get_current_settings()
+            if current_settings and self.preview_callback:
+                self.preview_callback(current_settings)
+        except ValueError:
+            pass  # Ignore invalid values during typing
+
+    def get_current_settings(self):
+        """Get current settings without validation"""
+        try:
+            return {
+                'text': self.text.get('1.0', 'end-1c'),
+                'font': self.font.get(),
+                'font_size': int(self.font_size.get()),
+                'color': self.color.get(),
+                'bg_color': self.bg_color.get(),
+                'bg_opacity': float(self.bg_opacity.get()),
+                'position': self.position.get(),
+                'margin': int(self.margin.get()),
+                'bold': self.bold.get(),
+                'italic': self.italic.get()
+            }
+        except (ValueError, tk.TclError):
+            return None
 
 class VideoEditorGUI:
     def __init__(self, root):
@@ -1107,7 +1192,7 @@ class VideoEditorGUI:
         """Update the video listbox with available videos"""
         self.video_listbox.delete(0, tk.END)
         folder = self.source_folder.get()
-        if folder:
+        if (folder):
             video_files = [f for f in os.listdir(folder) 
                           if f.lower().endswith((".mp4", ".mov"))]
             for video in sorted(video_files):  # Sort the files alphabetically
@@ -1201,7 +1286,9 @@ class VideoEditorGUI:
         ttk.Label(settings_window, text="Advanced settings coming soon...").pack(pady=20)
         
     def show_text_overlays(self):
-        dialog = TextOverlayDialog(self.root, self.update_text_overlays)
+        dialog = TextOverlayDialog(self.root, 
+                                 self.update_text_overlays,
+                                 preview_callback=self.preview_text_overlays)
         dialog.overlays = self.text_overlays.copy()
         dialog.update_list()
         self.root.wait_window(dialog.dialog)
@@ -1219,6 +1306,19 @@ class VideoEditorGUI:
                 settings=self.session_settings,
                 dimensions=self.current_dimensions,
                 video_path=self.current_preview_video
+            )
+
+    def preview_text_overlays(self, temp_overlays):
+        """Preview temporary text overlay changes"""
+        if hasattr(self, 'preview_panel'):
+            # Create temporary settings with current overlays
+            temp_settings = self.session_settings.copy()
+            temp_settings['text_overlays'] = temp_overlays
+            
+            # Update preview with temporary settings
+            self.preview_panel.update_preview(
+                settings=temp_settings,
+                dimensions=self.current_dimensions
             )
 
     def update_progress(self, value):
@@ -1283,7 +1383,7 @@ class VideoEditorGUI:
             "1": (1080, 1080),
             "2": (1080, 1920),
             "3": (1920, 1080),
-            "4": (1080, 1920)  # Custom - using default portrait for now
+            "4": self.current_dimensions  # Custom dimensions
         }
         self.current_dimensions = ratio_dimensions[self.aspect_ratio.get()]
         self.preview_panel.update_preview(dimensions=dimensions, settings=self.session_settings, video_path=self.current_preview_video)
@@ -1479,3 +1579,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
