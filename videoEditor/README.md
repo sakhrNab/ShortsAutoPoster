@@ -169,3 +169,17 @@ Feel free to contribute by:
 ## Contact
 
 sakhr270@gmail.com
+
+## Upcoming Features
+
+The following features are planned for future releases, ordered by priority:
+
+| Priority | Feature | Description | Status |
+|----------|---------|-------------|---------|
+| 1 | Custom Video Thumbnails | Generate and customize eye-catching cover images for videos before posting. Supports multiple layouts, text overlays, and branding elements. | Planned |
+| 2 | Dynamic Text Styling | Enable text styling with custom colors within specific segments. Example: "The age of AI will be {color: #FF6B00}revolutionary{/color}" - supports multiple color segments and advanced typography. | Planned |
+| 3 | Font Management System | User-friendly interface for managing custom fonts. Features include: <br>- Custom font directory selection<br>- Font preview and categorization<br>- Hot-reload of new fonts<br>- Font favorites system | Planned |
+| 4 | Advanced Video Transitions | Frame-based transitions between video segments with customizable effects and timing. | Future |
+| 5 | Audio-Triggered Transitions | Smart transitions triggered by audio cues (voice detection, sound peaks, or music beats). | Future |
+| 6 | Multi-Icon Support | Support for multiple brand icons/watermarks with:<br>- Different positions per icon<br>- Individual opacity settings<br>- Animation options<br>- Scheduling (time-based appearance) | Future |
+| 7 | Text Layout Customization | Customize text container shapes with:<br>- Rounded corners<br>- Custom border radius<br>- Shadow effects<br>- Gradient backgrounds | Future |
