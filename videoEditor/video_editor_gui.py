@@ -7,7 +7,7 @@ import threading
 import queue
 import logging
 from datetime import datetime
-from video_automater11 import process_video, load_config, get_parameters_from_config, get_platform_defaults, generate_filter_complex
+from video_automater import process_video, load_config, get_parameters_from_config, get_platform_defaults, generate_filter_complex
 from typing import Dict, Any, Tuple
 import cv2
 from PIL import Image, ImageTk

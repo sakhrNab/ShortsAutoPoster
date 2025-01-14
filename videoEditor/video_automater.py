@@ -1,3 +1,4 @@
+# video_automater11.py
 import os
 import subprocess
 import signal
@@ -219,7 +220,8 @@ def get_icon_preferences():
     }
 
 def generate_filter_complex(input_path, brand_icon, target_dimensions, black_bg_params=None, 
-                          video_position_params=None, top_bg_params=None, icon_params=None):
+                          video_position_params=None, top_bg_params=None, icon_params=None,
+                          text_overlays=None):
     """Generate the filter_complex string with properly chained filters."""
     target_width, target_height = target_dimensions
     current_stage = "scaled"
@@ -280,17 +282,67 @@ def generate_filter_complex(input_path, brand_icon, target_dimensions, black_bg_
     elif x_pos == "r":
         x_formula = "main_w-overlay_w-10"
     else:
-        x_formula = f"main_w*{float(x_pos)/100}"
+        try:
+            x_percentage = float(x_pos)
+            x_formula = f"main_w*{x_percentage/100}"
+        except ValueError:
+            x_formula = "(main_w-overlay_w)/2"  # Default to center if invalid
     
     # Calculate Y position
     y_formula = f"main_h*{icon_params['y_position']/100}"
 
-    # Add the brand icon overlay
+    # Add the brand icon overlay with proper output label
     filter_complex += (
         f";[1:v]scale={icon_width}:-1[icon];"
-        f"[{current_stage}][icon]overlay={x_formula}:{y_formula}"
+        f"[{current_stage}][icon]overlay={x_formula}:{y_formula}[withicon]"
     )
+    current_stage = "withicon"
     
+    # Add text overlays if present
+    if text_overlays:
+        for idx, overlay in enumerate(text_overlays):
+            next_stage = f"text{idx}"
+            
+            # Calculate position
+            if overlay['position'] == 'top':
+                y_pos = str(overlay['margin'])
+            elif overlay['position'] == 'middle':
+                y_pos = "(h-th)/2"  # Use 'th' instead of 'text_h'
+            else:  # bottom
+                y_pos = f"h-th-{overlay['margin']}"  # Use 'th' instead of 'text_h'
+
+            filter_complex += f";[{current_stage}]"
+            
+            # Add text first to calculate its dimensions
+            filter_complex += (
+                f"drawtext=text='{overlay['text']}':"
+                f"fontsize={overlay['font_size']}:"
+                f"fontcolor={overlay['color']}"
+            )
+            
+            if 'font' in overlay and overlay['font'].lower() != 'arial':
+                filter_complex += f":fontfile='{overlay['font']}'"
+            
+            # Add position calculations
+            filter_complex += (
+                f":x=(w-tw)/2:"  # Use 'tw' instead of 'text_w'
+                f"y={y_pos}"
+            )
+
+            # If background is enabled, add box
+            if overlay.get('bg_opacity', 0) > 0:
+                filter_complex += (
+                    f":box=1:"
+                    f"boxcolor={overlay['bg_color']}@{overlay['bg_opacity']}:"
+                    f"boxborderw=10"  # 10 pixels padding
+                )
+            
+            filter_complex += f"[{next_stage}]"
+            current_stage = next_stage
+
+    # Add final output label
+    filter_complex += f";[{current_stage}]copy[out]"
+
     return filter_complex
 
 def process_video(video_args):
@@ -298,79 +350,72 @@ def process_video(video_args):
     Encodes a single video with FFmpeg using NVENC for hardware acceleration.
 
     Parameters:
-        video_args (tuple): Contains input_path, brand_icon, output_path, filter_complex.
+        video_args (tuple): Contains input_path, brand_icon, output_path, target_dimensions,
+                            black_bg_params, video_position_params, top_bg_params,
+                            icon_params, text_overlays.
 
     Returns:
         str: Path to the processed video file.
     """
     input_path, brand_icon, output_path, target_dimensions, black_bg_params, \
-    video_position_params, top_bg_params, icon_params = video_args
+    video_position_params, top_bg_params, icon_params, text_overlays = video_args
     
     filter_complex = generate_filter_complex(
         input_path, brand_icon, target_dimensions, black_bg_params,
-        video_position_params, top_bg_params, icon_params
+        video_position_params, top_bg_params, icon_params, text_overlays
     )
 
     command = [
-        "ffmpeg",                # Use "ffmpeg" directly (ensure it's in PATH)
-        "-i", input_path,        # Input video file
-        "-i", brand_icon,        # Input brand icon image
-        "-filter_complex", filter_complex,  # Complex filter for scaling, padding, and overlay
-        "-c:v", "h264_nvenc",    # Use NVIDIA NVENC encoder
-        "-preset", "p4",         # Preset for balance between speed and quality
-        "-cq", "20",             # Constant quality parameter (lower is better quality)
-        "-c:a", "copy",          # Copy audio without re-encoding
-        "-y",                    # Overwrite output files without asking
-        output_path              # Output video file
+        "ffmpeg",
+        "-i", input_path,
+        "-i", brand_icon,
+        "-filter_complex", filter_complex,
+        "-map", "[out]",      # Explicitly map the final output
+        "-map", "0:a?",       # Map audio if present
+        "-c:v", "h264_nvenc",
+        "-preset", "p4",
+        "-cq", "20",
+        "-c:a", "copy",
+        "-y",
+        output_path
     ]
 
     try:
         # Run FFmpeg and capture output for debugging
-        result = subprocess.run(
+        process = subprocess.Popen(
             command,
-            check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            universal_newlines=True,  # Enables text mode with universal newlines
+            encoding='utf-8',         # Specify UTF-8 encoding
+            errors='replace'          # Replace invalid characters instead of failing
         )
+        
+        # Wait for the process to complete and get output
+        stdout, stderr = process.communicate()
+        
+        if process.returncode != 0:
+            raise subprocess.CalledProcessError(
+                process.returncode, 
+                command, 
+                output=stdout, 
+                stderr=stderr
+            )
+            
         return output_path
+        
     except subprocess.CalledProcessError as e:
         print(f"[ERROR] FFmpeg failed for {input_path}:\n{e.stderr}")
         raise e
-
-def get_validated_input(prompt_message, is_folder=False, is_file=False):
-    """
-    Prompts the user for input and validates the provided path.
-
-    Parameters:
-        prompt_message (str): The message displayed to the user.
-        is_folder (bool): If True, validates the input as a folder path.
-        is_file (bool): If True, validates the input as a file path.
-
-    Returns:
-        str: A validated path entered by the user.
-    """
-    while True:
-        path = input(prompt_message).strip('"').strip("'")  # Remove potential quotes
-        if is_folder:
-            if os.path.isdir(path):
-                return path
-            else:
-                print(f"[ERROR] The folder '{path}' does not exist. Please enter a valid folder path.\n")
-        elif is_file:
-            if os.path.isfile(path):
-                return path
-            else:
-                print(f"[ERROR] The file '{path}' does not exist. Please enter a valid file path.\n")
-        else:
-            # If no validation is required
-            return path
+    except Exception as e:
+        print(f"[ERROR] Unexpected error processing {input_path}: {str(e)}")
+        raise e
 
 def load_config():
     """Load configuration from config.yaml"""
-    config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
+    config_path = os.path.join(os.path.dirname(__file__), 'config/config.yaml')
     try:
-        with open(config_path, 'r') as f:
+        with open(config_path, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f)
     except FileNotFoundError:
         print("[WARNING] config.yaml not found, using hardcoded defaults")
@@ -544,7 +589,7 @@ def main():
             input_path = os.path.join(source_folder, video_file)
             output_path = os.path.join(output_folder, f"processed_{video_file}")
             video_paths.append((input_path, brand_icon, output_path, target_dimensions,
-                              black_bg_params, video_position_params, top_bg_params, icon_params))
+                              black_bg_params, video_position_params, top_bg_params, icon_params, None))  # Add text_overlays parameter
 
     if not video_paths:
         print("[INFO] No videos found in the source folder to process.")
@@ -577,6 +622,34 @@ def main():
     else:
         pool.close()
         pool.join()
+
+def get_validated_input(prompt_message, is_folder=False, is_file=False):
+    """
+    Prompts the user for input and validates the provided path.
+
+    Parameters:
+        prompt_message (str): The message displayed to the user.
+        is_folder (bool): If True, validates the input as a folder path.
+        is_file (bool): If True, validates the input as a file path.
+
+    Returns:
+        str: A validated path entered by the user.
+    """
+    while True:
+        path = input(prompt_message).strip('"').strip("'")  # Remove potential quotes
+        if is_folder:
+            if os.path.isdir(path):
+                return path
+            else:
+                print(f"[ERROR] The folder '{path}' does not exist. Please enter a valid folder path.\n")
+        elif is_file:
+            if os.path.isfile(path):
+                return path
+            else:
+                print(f"[ERROR] The file '{path}' does not exist. Please enter a valid file path.\n")
+        else:
+            # If no validation is required
+            return path
 
 if __name__ == "__main__":
     main()
